@@ -54,6 +54,11 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The bucket entry named `name`.
+    pub fn bucket(&self, name: &str) -> Option<&BucketEntry> {
+        self.buckets.iter().find(|b| b.name == name)
+    }
+
     pub fn load(path: &Path) -> Result<Config> {
         let text = std::fs::read_to_string(path).map_err(|source| Error::Io {
             path: path.to_owned(),
@@ -63,6 +68,11 @@ impl Config {
             path: path.to_owned(),
             source,
         })
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let text = toml::to_string(self).expect("config serializes");
+        crate::fs::write_atomic(path, text.as_bytes())
     }
 }
 
