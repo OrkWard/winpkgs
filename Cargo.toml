@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/wpk", "crates/libwpk", "crates/wpk-shim"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "BSD-3-Clause"
 repository = "https://github.com/OrkWard/winpkgs"
