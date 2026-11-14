@@ -259,7 +259,6 @@ impl fmt::Display for Unsupported {
 pub struct Plan {
     pub arch: Arch,
     pub downloads: Vec<Download>,
-    pub innosetup: bool,
     pub bins: Vec<Bin>,
     pub shortcuts: Vec<Shortcut>,
     pub persist: Vec<Persist>,
@@ -273,10 +272,69 @@ pub struct Download {
     /// Name to save the file as, from `#/name` or the url path.
     pub file_name: String,
     pub hash: Option<Hash>,
+    pub extract: Extract,
     /// Directory inside the archive whose contents to install.
     pub extract_dir: Option<String>,
     /// Subdirectory of the install dir to extract into.
     pub extract_to: Option<String>,
+}
+
+/// How a download becomes files in the install dir, chosen like Scoop does
+/// from the file name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Extract {
+    /// Copied as is.
+    None,
+    Zip,
+    /// `msiexec /a`.
+    Msi,
+    /// innounp, for `.exe` files of manifests with `innosetup`.
+    Inno,
+    /// 7-Zip, for every other archive format.
+    SevenZip,
+}
+
+impl Extract {
+    pub fn of(file_name: &str, innosetup: bool) -> Extract {
+        let name = file_name.to_ascii_lowercase();
+        if name.ends_with(".zip") {
+            Extract::Zip
+        } else if name.ends_with(".msi") {
+            Extract::Msi
+        } else if name.ends_with(".exe") {
+            if innosetup { Extract::Inno } else { Extract::None }
+        } else if is_7z_format(&name) {
+            Extract::SevenZip
+        } else {
+            Extract::None
+        }
+    }
+}
+
+/// Scoop's `Test-7zipRequirement`:
+/// `\.(001|7z|bz(ip)?2?|gz|img|iso|lzma|lzh|nupkg|rar|tar|t[abgpx]z2?|t?zst|xz)(\.[^\d.]+)?$`
+fn is_7z_format(name: &str) -> bool {
+    const EXTS: [&str; 13] = [
+        "001", "7z", "gz", "img", "iso", "lzma", "lzh", "nupkg", "rar", "tar", "zst", "tzst", "xz",
+    ];
+    let matches = |ext: &str| {
+        EXTS.contains(&ext)
+            || matches!(ext, "bz" | "bz2" | "bzip" | "bzip2")
+            || (ext.len() >= 3
+                && ext.starts_with('t')
+                && matches!(ext.as_bytes()[1], b'a' | b'b' | b'g' | b'p' | b'x')
+                && (&ext[2..] == "z" || &ext[2..] == "z2"))
+    };
+    let segs: Vec<&str> = name.split('.').collect();
+    match segs.as_slice() {
+        [.., ext] if segs.len() >= 2 && matches(ext) => true,
+        // A trailing suffix without digits, like `.7z.download`.
+        [.., ext, suffix] if segs.len() >= 3 => {
+            matches(ext) && !suffix.is_empty() && !suffix.bytes().any(|b| b.is_ascii_digit())
+        }
+        _ => false,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,18 +413,29 @@ impl Manifest {
             .0;
 
         let mut downloads = Vec::with_capacity(urls.len());
+        // Like Scoop, extract_dir and extract_to pair with the archives only.
+        let mut archives = 0;
         for (i, raw) in urls.iter().enumerate() {
             let hash = match hashes.get(i) {
                 Some(h) => Some(Hash::parse(h).ok_or_else(|| Unsupported::Hash(h.clone()))?),
                 None => None,
             };
             let (url, file_name) = split_url(raw);
+            let extract = Extract::of(&file_name, self.innosetup);
+            let (extract_dir, extract_to) = if extract == Extract::None {
+                (None, None)
+            } else {
+                archives += 1;
+                let at = |list: &[String]| list.get(archives - 1).cloned().filter(|d| !d.is_empty());
+                (at(&extract_dirs), at(&self.extract_to.0))
+            };
             downloads.push(Download {
                 url,
                 file_name,
                 hash,
-                extract_dir: extract_dirs.get(i).cloned().filter(|d| !d.is_empty()),
-                extract_to: self.extract_to.0.get(i).cloned().filter(|d| !d.is_empty()),
+                extract,
+                extract_dir,
+                extract_to,
             });
         }
 
@@ -421,7 +490,6 @@ impl Manifest {
         Ok(Plan {
             arch,
             downloads,
-            innosetup: self.innosetup,
             bins,
             shortcuts,
             persist,
@@ -583,6 +651,32 @@ mod tests {
         assert_eq!(plan.shortcuts[0].aumid.as_deref(), Some("org.wezfurlong.wezterm"));
         assert_eq!(plan.persist[0].target, "conf");
         assert_eq!(plan.persist[1].target, "d");
+    }
+
+    #[test]
+    fn extract_kinds() {
+        assert_eq!(Extract::of("a.ZIP", false), Extract::Zip);
+        assert_eq!(Extract::of("a.exe", false), Extract::None);
+        assert_eq!(Extract::of("a.exe", true), Extract::Inno);
+        assert_eq!(Extract::of("a.msi", true), Extract::Msi);
+        for name in ["a.tar.gz", "a.tgz", "a.7z", "a.tbz2", "a.bzip2", "a.tar.zst", "a.7z.download", "a.nupkg"] {
+            assert_eq!(Extract::of(name, false), Extract::SevenZip, "{name}");
+        }
+        for name in ["a.jar", "7z", "a.7z.v2", "a.dll", "a.tz3"] {
+            assert_eq!(Extract::of(name, false), Extract::None, "{name}");
+        }
+    }
+
+    #[test]
+    fn extract_dir_pairs_with_archives_only() {
+        let m = manifest(
+            r#"{"version": "1", "url": ["https://h/tool.exe", "https://h/a.zip"],
+                "extract_dir": "inner", "extract_to": "sub"}"#,
+        );
+        let plan = m.plan(Arch::X64).unwrap();
+        assert_eq!(plan.downloads[0].extract_dir, None);
+        assert_eq!(plan.downloads[1].extract_dir.as_deref(), Some("inner"));
+        assert_eq!(plan.downloads[1].extract_to.as_deref(), Some("sub"));
     }
 
     #[test]
