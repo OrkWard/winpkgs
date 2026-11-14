@@ -98,7 +98,7 @@ impl Fixture {
             "bin": ["foo.exe", ["foo.exe", "foo2", "--data $persist_dir"]],
             "shortcuts": [["foo.exe", "Foo App"]],
             "persist": ["conf", "settings.ini"],
-            "notes": "hello",
+            "notes": "hello from $dir",
             "env_set": {"FOO_HOME": "$dir"}
         });
         std::fs::write(self.upstream.join("bucket/foo.json"), manifest.to_string()).unwrap();
@@ -145,6 +145,9 @@ fn install_upgrade_gc_uninstall() {
     assert_eq!(receipt.bins, ["foo", "foo2"]);
     assert!(receipt.explicit);
     let logged = log.lock().unwrap().join("\n");
+    assert!(logged.contains("Notes") && logged.contains("EnvSet"), "{logged}");
+    // Notes get the same variables as bin arguments.
+    assert!(logged.contains(&format!("hello from {}", v1.display()).replace('\\', "\\\\")), "{logged}");
     assert!(
         logged.contains("Notes") && logged.contains("EnvSet"),
         "{logged}"

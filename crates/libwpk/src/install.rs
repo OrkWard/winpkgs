@@ -238,9 +238,11 @@ impl Wpk {
                 version: &c.manifest.version,
             });
             if !c.manifest.notes.0.is_empty() {
+                let vars = Vars::of(&self.layout, &c.name, &c.manifest.version);
+                let lines: Vec<String> = c.manifest.notes.0.iter().map(|l| vars.expand(l)).collect();
                 reporter.event(Event::Notes {
                     name: &c.name,
-                    lines: &c.manifest.notes.0,
+                    lines: &lines,
                 });
             }
             if !job.plan.env_set.is_empty() {
