@@ -28,13 +28,16 @@ impl Wpk {
             config.save(&config_path)?;
             config
         };
-        let shims = install_self(&layout)?;
+        let shims = {
+            let _lock = crate::install::lock(&layout)?;
+            install_self(&layout)?
+        };
         let wpk = Wpk { layout, config, shims };
 
         wpk.update(|name, result| match result {
             Ok(()) => {}
             Err(e) => reporter.event(Event::Warning(format!("bucket {name}: {e}"))),
-        });
+        })?;
         let missing: Vec<String> = EXTRACTORS
             .iter()
             .filter(|p| installed::current(&wpk.layout, p).ok().flatten().is_none())

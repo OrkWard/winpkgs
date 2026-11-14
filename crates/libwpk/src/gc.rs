@@ -78,14 +78,18 @@ pub fn collect_package(layout: &Layout, name: &str) -> Result<Report> {
 
 fn collect_into(layout: &Layout, name: &str, report: &mut Report) -> Result<()> {
     let current = installed::current(layout, name)?;
-    let keep = current.as_deref().map(|v| layout.version(name, v));
+    let keep = current
+        .as_deref()
+        .map(|v| layout.version(name, v).to_string_lossy().to_lowercase());
     let package = layout.package(name);
     let Ok(entries) = std::fs::read_dir(&package) else {
         return Ok(());
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if !entry.file_type().is_ok_and(|t| t.is_dir()) || Some(&path) == keep.as_ref() {
+        // Paths are case-insensitive on Windows.
+        let is_current = keep.as_deref() == Some(path.to_string_lossy().to_lowercase().as_str());
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) || is_current {
             continue;
         }
         let file_name = entry.file_name().to_string_lossy().into_owned();

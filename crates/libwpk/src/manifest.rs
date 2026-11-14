@@ -43,8 +43,6 @@ pub struct Manifest {
     #[serde(default)]
     pub innosetup: bool,
     #[serde(default)]
-    pub extract_to: OneOrMany<String>,
-    #[serde(default)]
     pub persist: OneOrMany<OneOrMany<String>>,
     /// wpk extension: AppUserModelID per shortcut name.
     #[serde(default)]
@@ -64,6 +62,8 @@ pub struct ArchFields {
     pub hash: Option<OneOrMany<String>>,
     #[serde(default)]
     pub extract_dir: Option<OneOrMany<String>>,
+    #[serde(default)]
+    pub extract_to: Option<OneOrMany<String>>,
     #[serde(default)]
     pub bin: Option<OneOrMany<OneOrMany<String>>>,
     #[serde(default)]
@@ -411,6 +411,11 @@ impl Manifest {
             .clone()
             .unwrap_or_default()
             .0;
+        let extract_tos = pick(|f| f.extract_to.is_some())
+            .extract_to
+            .clone()
+            .unwrap_or_default()
+            .0;
 
         let mut downloads = Vec::with_capacity(urls.len());
         // Like Scoop, extract_dir and extract_to pair with the archives only.
@@ -427,7 +432,7 @@ impl Manifest {
             } else {
                 archives += 1;
                 let at = |list: &[String]| list.get(archives - 1).cloned().filter(|d| !d.is_empty());
-                (at(&extract_dirs), at(&self.extract_to.0))
+                (at(&extract_dirs), at(&extract_tos))
             };
             downloads.push(Download {
                 url,
@@ -503,18 +508,30 @@ impl Manifest {
     }
 }
 
-/// Every path the plan writes or reads stays inside the install dir.
+/// Every path the plan writes or reads stays inside the install dir, and
+/// nothing written to a `.shim` file can add lines to it.
 fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
     let bad = |what: &str, path: &str| Unsupported::Malformed(format!("{what} path `{path}`"));
     for d in &plan.downloads {
-        if d.file_name.is_empty() || d.file_name.contains(['/', '\\', ':']) || d.file_name.starts_with('.') {
+        if d.file_name.is_empty()
+            || d.file_name.contains(['/', '\\', ':'])
+            || d.file_name.starts_with('.')
+            || has_control(&d.file_name)
+        {
             return Err(bad("file", &d.file_name));
         }
-        for path in [&d.extract_dir, &d.extract_to].into_iter().flatten() {
+        if let Some(dir) = &d.extract_dir {
             // innounp takes `{app}`-style extract_dir values.
-            if !is_relative_inside(path) && !path.starts_with('{') {
-                return Err(bad("extract", path));
+            let inno = d.extract == Extract::Inno && dir.starts_with('{');
+            let inside = if inno { is_relative_inside(&dir.replace(['{', '}'], "")) } else { is_relative_inside(dir) };
+            if !inside {
+                return Err(bad("extract_dir", dir));
             }
+        }
+        if let Some(to) = &d.extract_to
+            && (!is_relative_inside(to) || to.contains(['{', '}']))
+        {
+            return Err(bad("extract_to", to));
         }
     }
     let paths = plan
@@ -535,15 +552,33 @@ fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
             return Err(bad("bin name", name));
         }
     }
+    let args = plan
+        .bins
+        .iter()
+        .filter_map(|b| b.args.as_ref())
+        .chain(plan.shortcuts.iter().filter_map(|s| s.args.as_ref()));
+    for arg in args {
+        if has_control(arg) {
+            return Err(Unsupported::Malformed(format!("arguments `{}`", arg.escape_debug())));
+        }
+    }
     Ok(())
 }
 
-/// A relative path without `..`, drive or root.
+fn has_control(s: &str) -> bool {
+    s.chars().any(char::is_control)
+}
+
+/// A relative path without drive, root or control characters, and without
+/// `..` in any spelling Windows accepts (`.. `, `...`).
 fn is_relative_inside(path: &str) -> bool {
     !path.is_empty()
         && !path.contains(':')
+        && !has_control(path)
         && !path.starts_with(['/', '\\'])
-        && path.split(['/', '\\']).all(|part| part != "..")
+        && path
+            .split(['/', '\\'])
+            .all(|part| part.is_empty() || part == "." || !part.chars().all(|c| c == '.' || c == ' '))
 }
 
 fn check_runnable(target: &str) -> Result<(), Unsupported> {
@@ -732,11 +767,25 @@ mod tests {
             r#"{"version": "1", "url": "https://h/a.zip", "bin": "C:\\x.exe"}"#,
             r#"{"version": "1", "url": "https://h/a.zip", "persist": [["a", "../b"]]}"#,
             r#"{"version": "1", "url": "https://h/a.zip", "bin": [["a.exe", "..\\b"]]}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "extract_dir": "{\\..\\x"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "extract_to": "{app}"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "persist": ".. \\x"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "bin": [["a.exe", "a", "x\npath = y"]]}"#,
+            r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\..\\.."}"#,
         ] {
             assert!(matches!(manifest(json).plan(Arch::X64), Err(Unsupported::Malformed(_))), "{json}");
         }
         let ok = manifest(r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\x", "bin": ".\\a.exe"}"#);
         assert!(ok.plan(Arch::X64).is_ok());
+    }
+
+    #[test]
+    fn extract_to_follows_architecture() {
+        let m = manifest(
+            r#"{"version": "1", "extract_to": "top",
+                "architecture": {"64bit": {"url": "https://h/a.zip", "extract_to": "x64"}}}"#,
+        );
+        assert_eq!(m.plan(Arch::X64).unwrap().downloads[0].extract_to.as_deref(), Some("x64"));
     }
 
     #[test]

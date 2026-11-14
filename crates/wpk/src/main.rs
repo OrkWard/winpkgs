@@ -127,7 +127,7 @@ fn update(wpk: &Wpk) -> anyhow::Result<()> {
             eprintln!("{name}: {e}");
             failed.store(true, Ordering::Relaxed);
         }
-    });
+    })?;
     if failed.into_inner() {
         bail!("some buckets failed to update");
     }
@@ -200,6 +200,7 @@ fn info(wpk: &Wpk, query: &str) -> anyhow::Result<()> {
 }
 
 fn hold(layout: &Layout, packages: &[String], held: bool) -> anyhow::Result<()> {
+    let _lock = libwpk::install::lock(layout)?;
     for name in packages {
         installed::set_held(layout, &name.to_ascii_lowercase(), held)?;
     }
@@ -255,6 +256,7 @@ fn cache(layout: &Layout, command: CacheCommand) -> anyhow::Result<()> {
             println!("{} files, {}", files.len(), ui::bytes(total));
         }
         CacheCommand::Rm { query } => {
+            let _lock = libwpk::install::lock(layout)?;
             let files = entries(Some(&query))?;
             for (path, _, _) in &files {
                 std::fs::remove_file(path).with_context(|| path.display().to_string())?;
@@ -266,6 +268,7 @@ fn cache(layout: &Layout, command: CacheCommand) -> anyhow::Result<()> {
 }
 
 fn gc(layout: &Layout) -> anyhow::Result<()> {
+    let _lock = libwpk::install::lock(layout)?;
     let report = libwpk::gc::run(layout)?;
     for path in &report.removed {
         println!("removed {}", path.display());

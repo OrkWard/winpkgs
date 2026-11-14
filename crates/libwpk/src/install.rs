@@ -99,7 +99,8 @@ impl Wpk {
                     continue;
                 }
             };
-            if candidate.manifest.version == target.receipt.version {
+            // Versions differing only in case share a directory.
+            if candidate.manifest.version.eq_ignore_ascii_case(&target.receipt.version) {
                 continue;
             }
             self.add_job(candidate, target.receipt.explicit, &mut jobs, &mut seen, &mut Vec::new())?;
@@ -123,7 +124,7 @@ impl Wpk {
             return Ok(());
         }
         let version = &candidate.manifest.version;
-        if !crate::layout::is_safe_name(&candidate.name) || !crate::layout::is_safe_name(version) || version == "current" {
+        if !crate::layout::is_safe_name(&candidate.name) || !crate::layout::is_safe_name(version) {
             return Err(Error::Unsupported {
                 package: candidate.ident(),
                 reason: crate::manifest::Unsupported::Malformed(format!("name or version `{version}`")),
@@ -301,6 +302,12 @@ impl Wpk {
             package: name.to_owned(),
             message,
         };
+        if let Some(previous) = &job.previous
+            && layout.version(name, &previous.receipt.version).to_string_lossy().to_lowercase()
+                == dir.to_string_lossy().to_lowercase()
+        {
+            return Err(install_err(format!("{version} would replace the installed {}", previous.receipt.version)));
+        }
 
         // A leftover of this version that is not current, e.g. from a
         // reinstall or a downgrade.
@@ -442,17 +449,23 @@ impl Wpk {
 
     /// Hold the global lock until the guard drops.
     pub fn lock(&self) -> Result<std::fs::File> {
-        let path = self.layout.lock();
-        crate::fs::create_dir_all(path.parent().expect("lock has a parent"))?;
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .map_err(crate::fs::io_error(&path))?;
-        file.lock().map_err(crate::fs::io_error(&path))?;
-        Ok(file)
+        lock(&self.layout)
     }
+}
+
+/// Hold the global lock of `layout` until the guard drops. Not reentrant:
+/// taking it twice in one process blocks.
+pub fn lock(layout: &Layout) -> Result<std::fs::File> {
+    let path = layout.lock();
+    crate::fs::create_dir_all(path.parent().expect("lock has a parent"))?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(crate::fs::io_error(&path))?;
+    file.lock().map_err(crate::fs::io_error(&path))?;
+    Ok(file)
 }
 
 /// Remove what `old` created and `new` does not.

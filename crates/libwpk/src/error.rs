@@ -25,6 +25,9 @@ pub enum Error {
     #[error("bucket '{0}' already exists")]
     BucketExists(String),
 
+    #[error("'{0}' cannot be a bucket name")]
+    BucketName(String),
+
     #[error("bucket '{bucket}': {message}")]
     Git { bucket: String, message: String },
 

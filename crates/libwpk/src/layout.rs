@@ -156,15 +156,17 @@ fn normalize(path: PathBuf) -> PathBuf {
     }
 }
 
-/// Whether `s` can be a single path component: a package name or version.
+/// Whether `s` can be a single path component: a package, bucket or
+/// version name. Windows drops trailing dots and spaces, so those are out.
 pub fn is_safe_name(s: &str) -> bool {
-    let s = s.trim();
     !s.is_empty()
-        && s != "."
-        && s != ".."
+        && !s.ends_with(['.', ' '])
+        && !s.starts_with(' ')
         && !s.starts_with(".wpk")
-        && !s.ends_with(".tmp")
+        && !s.to_ascii_lowercase().ends_with(".tmp")
+        && !s.eq_ignore_ascii_case("current")
         && !s.contains(['/', '\\'])
+        && !s.chars().any(char::is_control)
 }
 
 #[cfg(test)]

@@ -36,6 +36,10 @@ impl Wpk {
 
     /// Clone a bucket and append it to the config, lowest priority.
     pub fn bucket_add(&mut self, name: &str, url: &str) -> Result<()> {
+        if !crate::layout::is_safe_name(name) {
+            return Err(Error::BucketName(name.to_owned()));
+        }
+        let _lock = self.lock()?;
         if self.config.bucket(name).is_some() {
             return Err(Error::BucketExists(name.to_owned()));
         }
@@ -48,6 +52,7 @@ impl Wpk {
     }
 
     pub fn bucket_remove(&mut self, name: &str) -> Result<()> {
+        let _lock = self.lock()?;
         let before = self.config.buckets.len();
         self.config.buckets.retain(|b| b.name != name);
         if self.config.buckets.len() == before {
@@ -63,7 +68,8 @@ impl Wpk {
 
     /// Fetch every configured bucket in parallel, cloning missing ones.
     /// `report` gets each bucket's result as it finishes.
-    pub fn update(&self, report: impl Fn(&str, Result<()>) + Sync) {
+    pub fn update(&self, report: impl Fn(&str, Result<()>) + Sync) -> Result<()> {
+        let _lock = self.lock()?;
         std::thread::scope(|scope| {
             for entry in &self.config.buckets {
                 let report = &report;
@@ -77,6 +83,7 @@ impl Wpk {
                 });
             }
         });
+        Ok(())
     }
 
     /// Open the configured buckets in priority order. Missing ones are
