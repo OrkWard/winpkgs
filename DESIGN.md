@@ -86,7 +86,7 @@ Windows 没有 exec，shim 只能创建子进程。console 变体的行为：
 
 - 子进程继承标准输入输出句柄。
 - shim 忽略 Ctrl+C 等控制台信号。子进程与 shim 共用同一个控制台，会直接收到这些信号，由子进程自己决定是否退出。
-- 子进程放进一个设置了 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 job object，shim 被杀时子进程随之结束。
+- 子进程放进一个设置了 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 job object，shim 被杀时子进程随之结束。子进程再启动的进程不在 job 里。目标是 bat 或 cmd 时，真正干活的是 cmd.exe 启动的程序，所以 shim 在启动前把自己放进 job，cmd.exe 及其启动的所有进程都继承这个 job，shim 被杀时一起结束；bat 正常结束后 shim 解除这个限制，用 `start` 等方式留下的进程继续运行。
 - shim 等待子进程结束，返回其退出码。
 
 gui 变体启动子进程后直接退出。

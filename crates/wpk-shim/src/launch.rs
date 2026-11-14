@@ -16,8 +16,8 @@ use windows_sys::Win32::System::JobObjects::{
     JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess, GetStartupInfoW, INFINITE,
-    PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, WaitForSingleObject,
+    CREATE_SUSPENDED, CreateProcessW, GetCurrentProcess, GetExitCodeProcess, GetStartupInfoW,
+    INFINITE, PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, WaitForSingleObject,
 };
 use windows_sys::Win32::UI::Shell::{
     CommandLineToArgvW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
@@ -152,17 +152,42 @@ unsafe fn kill_with_us(process: HANDLE) {
         if job.is_null() {
             return;
         }
+        set_job_limits(
+            job,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+        );
+        AssignProcessToJobObject(job, process);
+        // The handle stays open until we exit, which is what closes the job.
+    }
+}
+
+/// Put the shim in a job that ends every process started from here on,
+/// and their children, when the shim dies. Null when that fails.
+unsafe fn kill_all_with_us() -> HANDLE {
+    unsafe {
+        let job = CreateJobObjectW(null(), null());
+        if job.is_null() {
+            return job;
+        }
+        set_job_limits(job, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE);
+        if AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
+            CloseHandle(job);
+            return null_mut();
+        }
+        job
+    }
+}
+
+unsafe fn set_job_limits(job: HANDLE, flags: u32) {
+    unsafe {
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        info.BasicLimitInformation.LimitFlags =
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+        info.BasicLimitInformation.LimitFlags = flags;
         SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
             &info as *const _ as *const _,
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         );
-        AssignProcessToJobObject(job, process);
-        // The handle stays open until we exit, which is what closes the job.
     }
 }
 
@@ -225,6 +250,9 @@ fn is_batch(path: &str) -> bool {
 /// cmd.exe parses a batch file's command line by its own rules, not the C
 /// runtime's our callers quoted for, so the arguments are split and handed
 /// to std, which quotes them for cmd or refuses ones it cannot make safe.
+///
+/// What the batch file runs is the real target, so the whole tree joins the
+/// job, by inheriting ours from the start.
 fn run_batch(shim: &ShimFile, rest: &[u16]) -> Result<i32, String> {
     let mut args = shim.args.as_deref().map(split_args).unwrap_or_default();
     args.extend(split_args(&String::from_utf16_lossy(rest)));
@@ -233,11 +261,19 @@ fn run_batch(shim: &ShimFile, rest: &[u16]) -> Result<i32, String> {
     if let Some(dir) = &shim.dir {
         command.current_dir(dir);
     }
+    let job = unsafe { kill_all_with_us() };
     let mut child = command
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", shim.path))?;
-    unsafe { kill_with_us(child.as_raw_handle() as HANDLE) };
+    if job.is_null() {
+        unsafe { kill_with_us(child.as_raw_handle() as HANDLE) };
+    }
     let status = child.wait().map_err(|e| e.to_string())?;
+    if !job.is_null() {
+        // What the batch file left running, e.g. with `start`, was meant to
+        // outlive it.
+        unsafe { set_job_limits(job, 0) };
+    }
     Ok(status.code().unwrap_or(1))
 }
 
