@@ -6,7 +6,9 @@
 pub mod config;
 pub mod error;
 pub mod layout;
+pub mod manifest;
 
 pub use config::Config;
 pub use error::{Error, Result};
 pub use layout::Layout;
+pub use manifest::Manifest;
