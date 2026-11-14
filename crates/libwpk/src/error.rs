@@ -55,4 +55,32 @@ pub enum Error {
 
     #[error("{}: {message}", path.display())]
     Shortcut { path: PathBuf, message: String },
+
+    #[error("package '{0}' not found")]
+    PackageNotFound(String),
+
+    #[error("{package}: invalid manifest: {message}")]
+    ManifestParse { package: String, message: String },
+
+    #[error("{package}: cannot install: {reason}")]
+    Unsupported {
+        package: String,
+        reason: crate::manifest::Unsupported,
+    },
+
+    #[error("{package}: '{name}' is already provided by '{owner}'")]
+    Conflict {
+        package: String,
+        name: String,
+        owner: String,
+    },
+
+    #[error("dependency cycle through '{0}'")]
+    DependencyCycle(String),
+
+    #[error("{package}: {message}")]
+    Install { package: String, message: String },
+
+    #[error("wpk cannot uninstall itself")]
+    UninstallSelf,
 }

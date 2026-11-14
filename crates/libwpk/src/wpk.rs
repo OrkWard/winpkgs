@@ -1,11 +1,14 @@
 //! [`Wpk`], the entry point for frontends.
 
 use crate::config::BucketEntry;
+use crate::shim::ShimExes;
 use crate::{Config, Error, Layout, Result, bucket};
 
 pub struct Wpk {
     pub layout: Layout,
     pub config: Config,
+    /// Where shims are copied from.
+    pub shims: ShimExes,
 }
 
 impl Wpk {
@@ -16,7 +19,11 @@ impl Wpk {
             return Err(Error::NotInitialized(layout.root().to_owned()));
         }
         let config = Config::load(&path)?;
-        Ok(Wpk { layout, config })
+        Ok(Wpk {
+            layout,
+            config,
+            shims: ShimExes::beside_current_exe()?,
+        })
     }
 
     pub fn save_config(&self) -> Result<()> {
