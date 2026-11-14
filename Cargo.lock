@@ -357,6 +357,9 @@ dependencies = [
 [[package]]
 name = "wpk-shim"
 version = "0.1.0"
+dependencies = [
+ "windows-sys",
+]
 
 [[package]]
 name = "zmij"
