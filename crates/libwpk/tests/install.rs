@@ -153,6 +153,29 @@ fn install_upgrade_gc_uninstall() {
 }
 
 #[test]
+fn failed_link_restores_previous_version() {
+    let f = Fixture::new("rollback");
+    let layout = &f.wpk.layout;
+    let reporter = |_: Event<'_>| {};
+    f.publish("1");
+    f.wpk.install(&["foo".into()], &reporter).unwrap();
+    let shim = || std::fs::read_to_string(layout.bin().join("foo.shim")).unwrap();
+    let v1_shim = shim();
+
+    // Shortcuts cannot be written once the Start menu folder is a file.
+    std::fs::remove_dir_all(layout.start_menu()).unwrap();
+    std::fs::write(layout.start_menu(), "").unwrap();
+    f.publish("2");
+    assert!(f.wpk.upgrade(&[], &reporter).is_err());
+    assert_eq!(installed::current(layout, "foo").unwrap().as_deref(), Some("1"));
+    assert_eq!(shim(), v1_shim);
+    // Relinking hit the same shortcut failure, so v2 stays for GC.
+    libwpk::gc::run(layout).unwrap();
+    assert!(!layout.version("foo", "2").exists());
+    assert!(layout.version("foo", "1").exists());
+}
+
+#[test]
 fn rejects_unsupported_and_conflicts() {
     let f = Fixture::new("reject");
     let reporter = |_: Event<'_>| {};

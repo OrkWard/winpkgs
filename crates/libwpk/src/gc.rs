@@ -93,7 +93,7 @@ fn collect_into(layout: &Layout, name: &str, report: &mut Report) -> Result<()> 
             continue;
         }
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        let is_version = path.join(".wpk").join("receipt.json").exists();
+        let is_version = path.join(".wpk").is_dir();
         let is_leftover = file_name.ends_with(".tmp") || file_name.starts_with(".wpk-gc-");
         // opt/wpk also holds wpk's state; only version dirs are collected.
         if !is_version && !is_leftover {

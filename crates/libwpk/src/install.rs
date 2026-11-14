@@ -320,7 +320,13 @@ impl Wpk {
         let staged = (|| {
             for (dl, cached) in job.plan.downloads.iter().zip(files) {
                 let file = stage.join(&dl.file_name);
-                link_or_copy(cached, &file)?;
+                // Files installed as is get their own copy, so changes to
+                // them never reach the cache.
+                if dl.extract == crate::manifest::Extract::None {
+                    std::fs::copy(cached, &file).map_err(crate::fs::io_error(&file))?;
+                } else {
+                    link_or_copy(cached, &file)?;
+                }
                 archive::unpack(&file, dl, &stage, tools)?;
             }
             Ok(())
@@ -352,10 +358,8 @@ impl Wpk {
             return Err(e);
         }
 
-        // From here on the new version is complete; failures leave it in
-        // place without switching `current`.
-        let vars = Vars::of(layout, name, version);
-        let bin_dir = layout.bin();
+        // From here on the new version is complete. If linking it fails,
+        // the previous version's links come back and the new dir goes.
         let mut receipt = Receipt {
             version: version.to_owned(),
             bucket: c.bucket.clone(),
@@ -367,43 +371,24 @@ impl Wpk {
             launchers: Vec::new(),
             shortcuts: Vec::new(),
         };
-        for bin in &job.plan.bins {
-            let shim = ShimFile {
-                path: dir.join(&bin.target).display().to_string(),
-                args: bin.args.as_deref().map(|a| vars.expand(a)),
-                dir: None,
-            };
-            shim::write(&bin_dir, &bin.name, &shim, exes)?;
-            receipt.bins.push(bin.name.clone());
-        }
-        let launchers = layout.launchers(name);
-        for s in &job.plan.shortcuts {
-            let launcher = launcher_name(&s.name);
-            let target = dir.join(&s.target);
-            let shim = ShimFile {
-                path: target.display().to_string(),
-                args: s.args.as_deref().map(|a| vars.expand(a)),
-                dir: Some(dir.display().to_string()),
-            };
-            shim::write(&launchers, &launcher, &shim, exes)?;
-            receipt.launchers.push(launcher.clone());
-
-            let ico = launchers.join(format!("{launcher}.ico"));
-            let icon_source = s.icon.as_ref().map(|i| dir.join(i)).unwrap_or(target);
-            let has_icon = if icon_source.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico")) {
-                std::fs::copy(&icon_source, &ico).is_ok()
+        if let Err(e) = link_version(layout, name, version, &job.plan, exes, &mut receipt) {
+            let mut restored = job.previous.is_none();
+            if let Some(previous) = &job.previous {
+                remove_stale(layout, name, &receipt, &previous.receipt).ok();
+                restored = relink_previous(layout, name, &previous.receipt, exes).is_ok();
             } else {
-                shortcut::extract_icon(&icon_source, &ico)?
-            };
-            let file = shortcut_file(&s.name);
-            let aumid = s.aumid.clone().unwrap_or_else(|| shortcut::aumid(name, &s.name));
-            shortcut::create(
-                &layout.start_menu().join(&file),
-                &launchers.join(format!("{launcher}.exe")),
-                has_icon.then_some(ico.as_path()),
-                &aumid,
-            )?;
-            receipt.shortcuts.push(file);
+                let empty = Receipt {
+                    bins: Vec::new(),
+                    launchers: Vec::new(),
+                    shortcuts: Vec::new(),
+                    ..receipt.clone()
+                };
+                remove_stale(layout, name, &receipt, &empty).ok();
+            }
+            if restored {
+                let _ = crate::fs::remove_dir_all(&dir);
+            }
+            return Err(e);
         }
         installed::write_receipt(layout, name, &receipt)?;
         installed::set_current(layout, name, version)?;
@@ -466,6 +451,85 @@ pub fn lock(layout: &Layout) -> Result<std::fs::File> {
         .map_err(crate::fs::io_error(&path))?;
     file.lock().map_err(crate::fs::io_error(&path))?;
     Ok(file)
+}
+
+/// Point the shims, launchers and shortcuts of `plan` at `version`,
+/// recording each in `links` as soon as it exists. Icons are prepared
+/// first, so the common failures happen before any shim changes.
+fn link_version(
+    layout: &Layout,
+    name: &str,
+    version: &str,
+    plan: &Plan,
+    exes: &ShimExes,
+    links: &mut Receipt,
+) -> Result<()> {
+    let dir = layout.version(name, version);
+    let vars = Vars::of(layout, name, version);
+    let launchers = layout.launchers(name);
+    let mut icons = Vec::with_capacity(plan.shortcuts.len());
+    for s in &plan.shortcuts {
+        crate::fs::create_dir_all(&launchers)?;
+        let ico = launchers.join(format!("{}.ico", launcher_name(&s.name)));
+        let source = s.icon.as_ref().map(|i| dir.join(i)).unwrap_or_else(|| dir.join(&s.target));
+        let has_icon = if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico")) {
+            std::fs::copy(&source, &ico).is_ok()
+        } else {
+            shortcut::extract_icon(&source, &ico)?
+        };
+        icons.push(has_icon.then_some(ico));
+    }
+
+    let bin_dir = layout.bin();
+    for bin in &plan.bins {
+        let shim = ShimFile {
+            path: dir.join(&bin.target).display().to_string(),
+            args: bin.args.as_deref().map(|a| vars.expand(a)),
+            dir: None,
+        };
+        links.bins.push(bin.name.clone());
+        shim::write(&bin_dir, &bin.name, &shim, exes)?;
+    }
+    for (s, icon) in plan.shortcuts.iter().zip(icons) {
+        let launcher = launcher_name(&s.name);
+        let shim = ShimFile {
+            path: dir.join(&s.target).display().to_string(),
+            args: s.args.as_deref().map(|a| vars.expand(a)),
+            dir: Some(dir.display().to_string()),
+        };
+        links.launchers.push(launcher.clone());
+        shim::write(&launchers, &launcher, &shim, exes)?;
+        let file = shortcut_file(&s.name);
+        let aumid = s.aumid.clone().unwrap_or_else(|| shortcut::aumid(name, &s.name));
+        links.shortcuts.push(file.clone());
+        shortcut::create(
+            &layout.start_menu().join(&file),
+            &launchers.join(format!("{launcher}.exe")),
+            icon.as_deref(),
+            &aumid,
+        )?;
+    }
+    Ok(())
+}
+
+/// Link the previously installed version again from its saved manifest.
+fn relink_previous(layout: &Layout, name: &str, previous: &Receipt, exes: &ShimExes) -> Result<()> {
+    let path = layout.records(name, &previous.version).join("manifest.json");
+    let manifest = crate::Manifest::parse(&crate::fs::read(&path)?).map_err(|e| Error::Corrupt {
+        path: path.clone(),
+        message: e.to_string(),
+    })?;
+    let plan = manifest.plan(previous.arch).map_err(|reason| Error::Unsupported {
+        package: name.to_owned(),
+        reason,
+    })?;
+    let mut links = Receipt {
+        bins: Vec::new(),
+        launchers: Vec::new(),
+        shortcuts: Vec::new(),
+        ..previous.clone()
+    };
+    link_version(layout, name, &previous.version, &plan, exes, &mut links)
 }
 
 /// Remove what `old` created and `new` does not.
