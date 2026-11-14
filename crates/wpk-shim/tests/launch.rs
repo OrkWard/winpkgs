@@ -44,6 +44,20 @@ fn runs_batch_files() {
 }
 
 #[test]
+fn batch_arguments_cannot_inject_commands() {
+    let dir = shim_dir("inject");
+    let bat = dir.join("t.bat");
+    std::fs::write(&bat, "@echo ARG=%1\r\n").unwrap();
+    let exe = make_shim(&dir, "t", &format!("path = {}\n", bat.display()));
+    let out = Command::new(&exe).arg("a\"&echo INJECTED").output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.lines().any(|l| l.contains("INJECTED") && !l.starts_with("ARG=")),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn reports_missing_shim_file() {
     let dir = shim_dir("missing");
     let exe = make_shim(&dir, "m", "");

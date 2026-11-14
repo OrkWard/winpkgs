@@ -77,6 +77,8 @@ dir = C:\Users\x\wpk\opt\fd\10.5.2
 
 目标 exe 要求管理员权限时，CreateProcess 失败，shim 改用 ShellExecuteEx 的 `runas` 启动。
 
+目标是 bat 或 cmd 时，cmd.exe 会按自己的规则重新解析命令行，而调用者是按 C 运行时的规则加的引号，原样转交会让参数里的 `&` 等字符变成新命令。所以 shim 先按 C 运行时规则拆分参数，再交给 Rust 标准库按 cmd 的规则重新加引号，无法安全表示的参数直接报错。
+
 shim 用允许删除共享（FILE_SHARE_DELETE）的方式打开 `.shim`，读完立即关闭，保证升级时可以随时替换。
 
 Windows 没有 exec，shim 只能创建子进程。console 变体的行为：

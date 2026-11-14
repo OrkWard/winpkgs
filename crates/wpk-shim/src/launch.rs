@@ -4,9 +4,10 @@ use std::ffi::OsStr;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ELEVATION_REQUIRED, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ELEVATION_REQUIRED, HANDLE, LocalFree};
 use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::JobObjects::{
@@ -18,7 +19,9 @@ use windows_sys::Win32::System::Threading::{
     CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess, GetStartupInfoW, INFINITE,
     PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, WaitForSingleObject,
 };
-use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
+use windows_sys::Win32::UI::Shell::{
+    CommandLineToArgvW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL};
 
 use crate::{ShimFile, Variant, skip_program_name};
@@ -35,6 +38,9 @@ pub fn run(variant: Variant) -> Result<i32, String> {
     if variant == Variant::Console {
         // The target shares our console and gets Ctrl+C itself; we only wait.
         unsafe { SetConsoleCtrlHandler(Some(ignore_ctrl), 1) };
+    }
+    if is_batch(&shim.path) {
+        return run_batch(&shim, rest);
     }
 
     // Pass on how we were started: window state, and the AppUserModelID or
@@ -195,6 +201,58 @@ fn run_elevated(variant: Variant, shim: &ShimFile, rest: &[u16]) -> Result<i32, 
             unsafe { CloseHandle(info.hProcess) };
             Ok(0)
         }
+    }
+}
+
+fn is_batch(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".bat") || lower.ends_with(".cmd")
+}
+
+/// cmd.exe parses a batch file's command line by its own rules, not the C
+/// runtime's our callers quoted for, so the arguments are split and handed
+/// to std, which quotes them for cmd or refuses ones it cannot make safe.
+fn run_batch(shim: &ShimFile, rest: &[u16]) -> Result<i32, String> {
+    let mut args = shim.args.as_deref().map(split_args).unwrap_or_default();
+    args.extend(split_args(&String::from_utf16_lossy(rest)));
+    let mut command = std::process::Command::new(&shim.path);
+    command.args(&args);
+    if let Some(dir) = &shim.dir {
+        command.current_dir(dir);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", shim.path))?;
+    unsafe { kill_with_us(child.as_raw_handle() as HANDLE) };
+    let status = child.wait().map_err(|e| e.to_string())?;
+    Ok(status.code().unwrap_or(1))
+}
+
+/// Split a command line the way the C runtime does.
+fn split_args(line: &str) -> Vec<String> {
+    if line.trim().is_empty() {
+        return Vec::new();
+    }
+    // CommandLineToArgvW treats the first word as the program name.
+    let full = wide(OsStr::new(&format!("x {line}")));
+    let mut count = 0;
+    unsafe {
+        let argv = CommandLineToArgvW(full.as_ptr(), &mut count);
+        if argv.is_null() {
+            return Vec::new();
+        }
+        let args = (1..count as usize)
+            .map(|i| {
+                let p = *argv.add(i);
+                let mut len = 0;
+                while *p.add(len) != 0 {
+                    len += 1;
+                }
+                String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+            })
+            .collect();
+        LocalFree(argv as _);
+        args
     }
 }
 
