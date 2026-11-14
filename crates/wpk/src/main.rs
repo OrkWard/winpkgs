@@ -137,9 +137,10 @@ fn update(wpk: &Wpk) -> anyhow::Result<()> {
 fn list(layout: &Layout) -> anyhow::Result<()> {
     let packages = installed::list(layout, |name, e| eprintln!("{name}: {e}"))?;
     let width = packages.iter().map(|p| p.name.len()).max().unwrap_or(0);
+    let vwidth = packages.iter().map(|p| p.receipt.version.len()).max().unwrap_or(0);
     for p in packages {
         let held = if p.held { "  held" } else { "" };
-        println!("{:width$}  {}  {}{held}", p.name, p.receipt.version, p.receipt.bucket);
+        println!("{:width$}  {:vwidth$}  {}{held}", p.name, p.receipt.version, p.receipt.bucket);
     }
     Ok(())
 }

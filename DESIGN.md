@@ -26,9 +26,9 @@ wpk 不修改任何用户环境，包括 PATH、注册表和用户环境变量�
           receipt.json      安装收据
     wpk/
       config.toml
-      buckets/<name>/       git 仓库
+      buckets/<name>/       bare、深度为 1 的 git 克隆，没有工作区
       held/<pkg>            空文件，存在即表示 hold
-      launchers/<pkg>/      快捷方式专用的 shim，不在 PATH 中
+      launchers/<pkg>/      快捷方式专用的 shim 和图标，不在 PATH 中
       lock                  全局文件锁
       gc-stamp              上次 GC 时间
       <ver>/                wpk 自身，与普通包相同的版本目录
@@ -36,9 +36,11 @@ wpk 不修改任何用户环境，包括 PATH、注册表和用户环境变量�
     <pkg>/                  persist 数据
 ```
 
-缓存目录为 `$XDG_CACHE_HOME/wpk`，未设置该变量时用 `~/.cache/wpk`。缓存文件名沿用 Scoop 的 `<pkg>#<ver>#<文件名>`。
+缓存目录为 `$XDG_CACHE_HOME/wpk`，未设置该变量时用 `~/.cache/wpk`。缓存文件名沿用 Scoop 的规则：`<pkg>#<ver>#<url>`，url 中字母、数字、`.-_` 以外的字符换成 `_`。
 
 当前版本记录在 `opt/<pkg>/current` 这个文本文件里，不使用 junction。和 `.shim` 一样，这个文件在任何时候都能改写。
+
+版本目录名是版本号，其中 Windows 不允许的字符换成 `_`。包名和版本号为空、为 `.` 或 `..`、以 `.wpk` 开头、以 `.tmp` 结尾或含路径分隔符时拒绝安装，版本号为 `current` 时也拒绝。
 
 ## manifest 字段
 
@@ -56,6 +58,8 @@ wpk 不修改任何用户环境，包括 PATH、注册表和用户环境变量�
 - `bin` 支持三种写法：`"x.exe"`、`["x.exe", "别名"]`、`["x.exe", "别名", "参数"]`。目标只允许 exe、bat、cmd，其他类型拒绝安装。
 - 搜索结果照常列出被拒绝的包，并标明拒绝原因（具体字段名）。
 - `depends` 按依赖关系安装，被依赖的包同样要满足上面的规则。`suggest` 只在 notes 中展示。
+- `bin` 和快捷方式的参数、`env_set` 的值中，`$dir` `$original_dir` 换成版本目录，`$persist_dir` 换成 `var/<pkg>`，`$version` `$app` 换成版本号和包名。
+- 下载文件名、`extract_dir`、`extract_to`、`bin`、`shortcuts`、`persist` 中的路径必须是不含 `..` 的相对路径，否则拒绝安装。
 
 ## shim
 
@@ -66,7 +70,12 @@ shim 启动时读取同目录下同名的 `.shim` 文件，格式为：
 ```
 path = C:\Users\x\wpk\opt\fd\10.5.2\fd.exe
 args = --hidden
+dir = C:\Users\x\wpk\opt\fd\10.5.2
 ```
+
+`args` 和 `dir` 可以省略。`args` 放在调用 shim 时的参数前面。`dir` 是子进程的工作目录，只有 launcher 写它，设为版本目录；bin 中的 shim 不写，子进程继承调用者的工作目录。
+
+目标 exe 要求管理员权限时，CreateProcess 失败，shim 改用 ShellExecuteEx 的 `runas` 启动。
 
 shim 用允许删除共享（FILE_SHARE_DELETE）的方式打开 `.shim`，读完立即关闭，保证升级时可以随时替换。
 
@@ -85,40 +94,61 @@ gui 变体启动子进程后直接退出。
 
 快捷方式放在 `开始菜单\Programs\wpk`，目标是 `opt/wpk/launchers/<pkg>/<name>.exe`。这个 shim 与 bin 中的 shim 机制相同，但不在 PATH 里，所以未列在 `bin` 中的 GUI 程序不会出现在命令行。升级时只改写 launcher 的 `.shim`，快捷方式本身不变，用户钉到任务栏的副本也不会失效。
 
+快捷方式的图标是 `launchers/<pkg>/<name>.ico`，每次安装时从目标 exe 的资源里提取（manifest 指定了图标时用指定的），所以旧版本被 GC 删掉后图标依然有效。
+
 任务栏按 AppUserModelID 分组，程序没有设 ID 时按 exe 路径匹配。快捷方式指向 shim，实际窗口属于另一个 exe，不处理的话会显示成两个图标。处理方式：
 
 - 每个快捷方式都写入 `System.AppUserModel.ID`。manifest 的 `shortcut_aumid` 扩展字段给出了 ID 就用它，用于自己设了 ID 的程序（如 wezterm）；没有则生成 `wpk.<pkg>.<name>`。
-- gui shim 从自身的 STARTUPINFO 读到 Shell 传入的 ID，再用 `STARTF_TITLEISAPPID` 传给子进程。
+- shim 把自身的 STARTUPINFO 原样传给子进程，其中包括 Shell 设置的 `STARTF_TITLEISAPPID` 或 `STARTF_TITLEISLINKNAME`，以及窗口显示方式。
 
-这个机制需要先做原型验证。
+分组效果还没有在真实任务栏上验证。
 
 ## persist
 
-`persist` 的数据存放在 `var/<pkg>`。安装新版本时，目录在 `opt/<pkg>/<ver>` 中建 junction 指向 `var/<pkg>` 下的对应位置，文件用硬链接。`var/<pkg>` 中还没有的条目，先从安装包里复制一份过去；安装包里也没有的，目录建为空目录，文件建为空文件。
+`persist` 的数据存放在 `var/<pkg>`。安装新版本时，目录在 `opt/<pkg>/<ver>` 中建 junction 指向 `var/<pkg>` 下的对应位置，文件用硬链接。每个条目按以下顺序处理：
+
+1. `var/<pkg>` 中已有：以它为准，安装包里的同名条目改名为 `<name>.original` 保留。
+2. 只有安装包里有：移动到 `var/<pkg>`。
+3. 两边都没有：名字带扩展名的建为空文件，否则建为空目录。
+
+删除版本目录时不跟随 junction，`var` 中的数据不受影响。
 
 ## 解包
 
-zip、7z、tar.*、gz 内置，msi 调用系统的 `msiexec /a`。其余格式调用 wpk 已安装的包：innosetup 用 `innounp`，rar、cab、iso、NSIS 等用 `7zip`。这两个包由 `wpk init` 作为普通包安装，解包时按它们的收据找到可执行文件；未安装时报错并提示安装。
+解包方式按下载文件名决定，规则与 Scoop 相同：
 
-main 中的 `7zip` 带有脚本字段，会被拒绝，需要在 `wpk` bucket 中提供一份不含脚本的 manifest。`innounp` 可以直接用 main 的。
+| 文件名 | 方式 |
+|---|---|
+| `.zip` | 内置 |
+| `.msi` | 系统的 `msiexec /a` |
+| `.exe`，且 manifest 有 `innosetup` | `innounp` 包 |
+| `.exe`，没有 `innosetup` | 不解包，原样放入 |
+| `.7z` `.gz` `.tar` `.tgz` `.xz` `.zst` `.rar` `.iso` `.nupkg` 等 | `7zip` 包；`.tar.*` 先解出 tar 再解一次 |
+| 其他 | 不解包，原样放入 |
+
+`extract_dir` 和 `extract_to` 按顺序对应需要解包的文件，不计原样放入的文件。
+
+`7zip` 和 `innounp` 由 `wpk init` 作为普通包安装，解包时从它们的当前版本目录找到可执行文件；未安装时报错并提示安装。main 中的 `7zip` 带有脚本字段，会被拒绝，所以 `wpk` bucket 提供一份不含脚本的 manifest。`innounp` 直接用 main 的。
 
 ## 安装与升级流程
 
 1. 获取全局锁。
-2. 解析包和依赖，检查字段。有任何被拒绝的字段时，在下载之前报错退出。
+2. 解析包和依赖，检查字段和路径，检查 bin 和快捷方式是否与其他包冲突。有任何问题时，在下载之前报错退出。
 3. 并行下载到缓存，校验 hash。
-4. 解包到 `opt/<pkg>/<ver>.tmp`，完成后改名为 `<ver>`。
-5. 建立 persist：`var/<pkg>` 中缺少的条目，从安装包复制，安装包里也没有的建为空目录或空文件；然后建立 junction 和硬链接。写入 `.wpk/manifest.json` 和 `receipt.json`。
-6. 写入 bin 和 launcher 的 `.shim` 及 exe，删除新版本中已不存在的 shim。
-7. 写入 `current`。
+4. 把缓存文件硬链接（失败时复制）到 `opt/<pkg>/<ver>.tmp`，在其中解包，完成后改名为 `<ver>`。
+5. 建立 persist，检查 bin 和快捷方式的目标文件存在，写入 `.wpk/manifest.json`。
+6. 写入 bin 和 launcher 的 `.shim` 及 exe、图标和快捷方式。
+7. 写入 `receipt.json` 和 `current`，删除新版本中已不存在的 shim 和快捷方式。
 8. 打印 notes、`env_set` 提示和 `suggest`。
 9. 如果距上次 GC 超过 `gc_interval_days`（默认 7 天），执行 GC。
 
-任何一步失败，删除 `.tmp` 目录；`current` 和 `.shim` 只在最后几步才改动，所以失败时旧版本保持可用。
+第 5 步之前失败，删除新版本目录；之后失败，新版本目录保留但 `current` 不变。旧版本始终可用。
 
 ## GC
 
-GC 删除 `opt/<pkg>/` 下除 `current` 所指版本以外的所有版本目录，以及被改名移开的旧 shim。目录中有 exe 或 dll 正被进程占用时跳过，留到下一次 GC。`wpk gc` 可以手动触发。
+GC 删除 `opt/<pkg>/` 下除 `current` 所指版本以外的所有版本目录（含 `.wpk/receipt.json` 的目录，以及残留的 `.tmp` 目录），以及被改名移开的旧 shim。`opt/wpk` 中的状态文件不是版本目录，不会被删除。
+
+删除前先检查目录中是否有 exe、dll 等映像正被进程加载，再把目录改名为 `.wpk-gc-<ver>`；有文件被打开时改名会失败。两种情况都跳过，留到下一次 GC。`wpk gc` 可以手动触发。
 
 ## 卸载
 
@@ -139,7 +169,7 @@ GC 删除 `opt/<pkg>/` 下除 `current` 所指版本以外的所有版本目录�
 
 ## bucket
 
-bucket 是 git 仓库，只支持 https 远程，用 gix 操作，HTTP 传输走 curl。
+bucket 是 git 仓库，远程可以是 https 地址或本地路径，用 gix 操作，HTTP 传输走 curl。克隆为 bare、深度为 1 的仓库，manifest 直接从 git 对象中读取，不检出工作区。更新时把远程默认分支强制同步到本地分支，所以上游改写历史后也能正常更新。读取时 config 被隔离，用户的 git 配置（如 `url.insteadOf`）不会影响 bucket。
 
 `wpk init` 默认添加三个 bucket，优先级从高到低：
 
@@ -194,11 +224,19 @@ wpk 自身作为 `wpk` bucket 中的普通包升级，流程与其他包相同�
 
 ## 安装脚本
 
-提供 `install.ps1` 和 `install.elv`，两者做同样的事：下载 wpk.exe 到临时目录，执行 `wpk init`，然后提示用户把 `~/wpk/bin` 加入 PATH。
+提供 `scripts/install.ps1` 和 `scripts/install.elv`，两者做同样的事：读取 `latest.json`，下载 `wpk.zip` 到临时目录并校验 sha256，解压后执行 `wpk init`。init 结束时提示用户把 `~/wpk/bin` 加入 PATH。
 
 ## 发布
 
-wpk.exe 发布在 MinIO：alias `prod`，bucket `scoop-bucket`，对象路径 `wpk/<ver>/wpk.zip`，公开地址 `https://s3.orkward.dev/scoop-bucket/wpk/<ver>/wpk.zip`。同一目录下的 `wpk/latest.json` 记录最新版本的 url 和 sha256，供安装脚本使用。wpk 的自我升级不读 `latest.json`，只看 wpk-bucket 中的 manifest。
+`elvish scripts/release.elv` 编译 release 版本并打包到 `target/dist/<ver>/`。加 `--publish` 时上传到 MinIO 并写入 `~/Repos/wpk-bucket/bucket/wpk.json`，提交和推送由人完成。
+
+MinIO 上的位置：alias `prod`，bucket `scoop-bucket`，公开地址前缀 `https://s3.orkward.dev/scoop-bucket/wpk/`：
+
+- `<ver>/wpk.zip`：`wpk.exe`、`wpk-shim.exe`、`wpk-shimw.exe`
+- `latest.json`：最新版本的 url 和 sha256，供安装脚本使用
+- `install.elv`、`install.ps1`
+
+wpk 的自我升级不读 `latest.json`，只看 wpk-bucket 中的 manifest。
 
 ## 工程结构
 
@@ -210,24 +248,27 @@ wpk.exe 发布在 MinIO：alias `prod`，bucket `scoop-bucket`，对象路径 `w
 | `libwpk` | 核心逻辑：manifest、bucket、下载、解包、安装、GC |
 | `wpk-shim` | shim 程序，console 变体 `wpk-shim.exe` 和 gui 变体 `wpk-shimw.exe` |
 
-根目录可以用环境变量 `WPK_ROOT` 覆盖，主要用于测试。
+根目录可以用环境变量 `WPK_ROOT` 覆盖，快捷方式目录可以用 `WPK_START_MENU` 覆盖，主要用于测试。
 
 主要依赖：
 
 - gix：bucket 的 git 操作
 - curl：静态链接，TLS 用 schannel
 - RustCrypto 的 md5、sha1、sha2：hash 校验
+- zip：内置的 zip 解包
+- junction：persist 的目录链接
+- windows、windows-sys：快捷方式、图标提取和 shim 的进程管理
 - serde_json、toml：manifest 和配置
+- jiff：收据中的时间
 - clap：命令行
 
 并发用线程池，不引入 async 运行时。
 
-许可证为 BSD-3-Clause。从 libscoop 搬来的代码按其 MIT 许可使用，保留原版权声明。
+许可证为 BSD-3-Clause。代码全部新写，没有复制 libscoop 的代码。
 
 ## 其他规则
 
-- 两个包提供同名的 bin 或 launcher 时，拒绝安装后来的那个，并报出冲突的包名。
+- 两个包提供同名的 bin 或快捷方式时，拒绝安装后来的那个，并报出冲突的包名。
 - bucket 中的版本字符串与已安装版本不同就视为可升级，不比较大小。
 - 不提供从 Scoop 或 hok 迁移的功能。
-
-从 hok 的 libscoop 搬过来的部分：manifest 解析（`Vectorized` 等反序列化）、bucket 查询、依赖 DAG、下载与缓存校验、zip/7z/tar 解包和 msi 解包。sync、shim、script、persist 等模块重写。
+- wpk 不能卸载自己。
