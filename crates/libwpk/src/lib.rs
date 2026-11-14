@@ -5,6 +5,7 @@
 
 pub mod bucket;
 pub mod config;
+pub mod download;
 pub mod error;
 pub mod fs;
 pub mod layout;

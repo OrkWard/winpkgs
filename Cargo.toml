@@ -18,6 +18,9 @@ gix = { version = "0.90", default-features = false, features = [
     "sha1",
 ] }
 curl = { version = "0.4", features = ["static-curl"] }
+md5 = { package = "md-5", version = "0.11" }
+sha1 = "0.11"
+sha2 = "0.11"
 remove_dir_all = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

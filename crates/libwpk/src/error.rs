@@ -30,4 +30,14 @@ pub enum Error {
 
     #[error("wpk is not initialized at {}; run `wpk init`", .0.display())]
     NotInitialized(PathBuf),
+
+    #[error("{url}: {message}")]
+    Download { url: String, message: String },
+
+    #[error("{url}: hash mismatch, expected {expected}, got {actual}")]
+    HashMismatch {
+        url: String,
+        expected: String,
+        actual: String,
+    },
 }
