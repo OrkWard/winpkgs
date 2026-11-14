@@ -40,4 +40,10 @@ pub enum Error {
         expected: String,
         actual: String,
     },
+
+    #[error("{file}: {message}")]
+    Extract { file: String, message: String },
+
+    #[error("extracting needs the '{0}' package; install it with `wpk install {0}`")]
+    MissingTool(&'static str),
 }

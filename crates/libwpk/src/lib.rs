@@ -3,6 +3,7 @@
 //! See `DESIGN.md` at the repository root for the file layout and the
 //! supported subset of the Scoop manifest format.
 
+pub mod archive;
 pub mod bucket;
 pub mod config;
 pub mod download;
