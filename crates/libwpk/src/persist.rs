@@ -60,8 +60,7 @@ mod tests {
 
     #[test]
     fn link_moves_creates_and_survives_removal() {
-        let root = std::env::temp_dir().join(format!("wpk-persist-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::testutil::TempDir::new("persist");
         let dir = root.join("opt/p/1");
         let var = root.join("var/p");
         std::fs::create_dir_all(dir.join("conf")).unwrap();
@@ -78,10 +77,22 @@ mod tests {
         ];
         link(&dir, &var, &entries).unwrap();
 
-        assert_eq!(std::fs::read_to_string(var.join("conf/a.ini")).unwrap(), "pkg");
-        assert_eq!(std::fs::read_to_string(dir.join("conf/a.ini")).unwrap(), "pkg");
-        assert_eq!(std::fs::read_to_string(dir.join("settings.json")).unwrap(), "user");
-        assert_eq!(std::fs::read_to_string(dir.join("settings.json.original")).unwrap(), "pkg");
+        assert_eq!(
+            std::fs::read_to_string(var.join("conf/a.ini")).unwrap(),
+            "pkg"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("conf/a.ini")).unwrap(),
+            "pkg"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json")).unwrap(),
+            "user"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json.original")).unwrap(),
+            "pkg"
+        );
         assert!(var.join("data").is_dir() && dir.join("data").is_dir());
         assert!(var.join("x.db").is_file() && dir.join("cache/x.db").is_file());
 
@@ -93,7 +104,10 @@ mod tests {
         crate::fs::remove_dir_all(&dir).unwrap();
         assert!(var.join("conf/a.ini").exists());
         assert!(var.join("data/new").exists());
-        assert_eq!(std::fs::read_to_string(var.join("settings.json")).unwrap(), "user");
+        assert_eq!(
+            std::fs::read_to_string(var.join("settings.json")).unwrap(),
+            "user"
+        );
 
         // The next version links to the same data.
         std::fs::create_dir_all(&dir).unwrap();

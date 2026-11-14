@@ -51,9 +51,7 @@ impl Bucket {
             .map_err(&err)?;
         let sub = root.lookup_entry_by_path("bucket").map_err(&err)?;
         match sub {
-            Some(entry) if entry.mode().is_tree() => {
-                Ok(entry.object().map_err(&err)?.into_tree())
-            }
+            Some(entry) if entry.mode().is_tree() => Ok(entry.object().map_err(&err)?.into_tree()),
             _ => Ok(root),
         }
     }
@@ -84,7 +82,12 @@ impl Bucket {
             let Some(package) = file.strip_suffix(".json") else {
                 continue;
             };
-            let data = self.repo.find_object(entry.oid()).map_err(&err)?.detach().data;
+            let data = self
+                .repo
+                .find_object(entry.oid())
+                .map_err(&err)?
+                .detach()
+                .data;
             out.push((package.to_owned(), data));
         }
         Ok(out)
@@ -144,13 +147,10 @@ pub fn update(layout: &Layout, name: &str, proxy: Option<&str>) -> Result<()> {
     let repo = open_repo(&path, proxy).map_err(&err)?;
     // Shallow clones store no refspec. Map the remote's default branch onto
     // our HEAD branch, whatever either is named.
-    let head = repo
-        .head_name()
-        .map_err(&err)?
-        .ok_or_else(|| Error::Git {
-            bucket: name.to_owned(),
-            message: "HEAD is detached".into(),
-        })?;
+    let head = repo.head_name().map_err(&err)?.ok_or_else(|| Error::Git {
+        bucket: name.to_owned(),
+        message: "HEAD is detached".into(),
+    })?;
     let refspec = format!("+HEAD:{}", head.as_bstr());
     let mut remote = repo
         .find_default_remote(gix::remote::Direction::Fetch)
@@ -204,7 +204,10 @@ fn depth_one() -> gix::remote::fetch::Shallow {
 /// Ignore the user's git configuration, so `url.insteadOf` and the like
 /// cannot redirect buckets, and apply wpk's proxy.
 fn open_options(proxy: Option<&str>) -> gix::open::Options {
-    let overrides: Vec<String> = proxy.map(|p| format!("http.proxy={p}")).into_iter().collect();
+    let overrides: Vec<String> = proxy
+        .map(|p| format!("http.proxy={p}"))
+        .into_iter()
+        .collect();
     gix::open::Options::isolated().config_overrides(overrides)
 }
 

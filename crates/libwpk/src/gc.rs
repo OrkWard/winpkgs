@@ -46,7 +46,9 @@ pub fn run(layout: &Layout) -> Result<Report> {
         shim_dirs.extend(entries.flatten().map(|e| e.path()));
     }
     for dir in shim_dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.to_string_lossy().ends_with(shim::RETIRED_SUFFIX) {
@@ -58,7 +60,10 @@ pub fn run(layout: &Layout) -> Result<Report> {
         }
     }
     crate::fs::create_dir_all(&layout.state())?;
-    crate::fs::write_atomic(&layout.gc_stamp(), jiff::Timestamp::now().to_string().as_bytes())?;
+    crate::fs::write_atomic(
+        &layout.gc_stamp(),
+        jiff::Timestamp::now().to_string().as_bytes(),
+    )?;
     Ok(report)
 }
 
@@ -134,7 +139,9 @@ const IMAGE_EXTENSIONS: [&str; 5] = ["exe", "dll", "com", "pyd", "node"];
 /// persisted data, are not followed.
 pub fn find_busy_image(dir: &Path) -> Option<PathBuf> {
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let Ok(kind) = entry.file_type() else { continue };
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         let path = entry.path();
         if kind.is_symlink() {
             continue;
@@ -163,9 +170,16 @@ fn is_busy(path: &Path) -> bool {
     use std::os::windows::fs::OpenOptionsExt;
     const ERROR_SHARING_VIOLATION: i32 = 32;
     const ERROR_LOCK_VIOLATION: i32 = 33;
-    match std::fs::OpenOptions::new().write(true).share_mode(0).open(path) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .share_mode(0)
+        .open(path)
+    {
         Ok(_) => false,
-        Err(e) => matches!(e.raw_os_error(), Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)),
+        Err(e) => matches!(
+            e.raw_os_error(),
+            Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+        ),
     }
 }
 
@@ -180,9 +194,8 @@ mod tests {
 
     #[test]
     fn keeps_current_running_and_state() {
-        let root = std::env::temp_dir().join(format!("wpk-gc-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let layout = Layout::new(&root, root.join("cache"));
+        let root = crate::testutil::TempDir::new("gc");
+        let layout = Layout::new(&*root, root.join("cache"));
         let version = |v: &str| {
             let dir = layout.version("p", v);
             std::fs::create_dir_all(dir.join(".wpk")).unwrap();

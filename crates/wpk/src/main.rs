@@ -137,10 +137,17 @@ fn update(wpk: &Wpk) -> anyhow::Result<()> {
 fn list(layout: &Layout) -> anyhow::Result<()> {
     let packages = installed::list(layout, |name, e| eprintln!("{name}: {e}"))?;
     let width = packages.iter().map(|p| p.name.len()).max().unwrap_or(0);
-    let vwidth = packages.iter().map(|p| p.receipt.version.len()).max().unwrap_or(0);
+    let vwidth = packages
+        .iter()
+        .map(|p| p.receipt.version.len())
+        .max()
+        .unwrap_or(0);
     for p in packages {
         let held = if p.held { "  held" } else { "" };
-        println!("{:width$}  {:vwidth$}  {}{held}", p.name, p.receipt.version, p.receipt.bucket);
+        println!(
+            "{:width$}  {:vwidth$}  {}{held}",
+            p.name, p.receipt.version, p.receipt.bucket
+        );
     }
     Ok(())
 }
@@ -175,7 +182,10 @@ fn info(wpk: &Wpk, query: &str) -> anyhow::Result<()> {
     }
     if let Some(i) = installed::get(&wpk.layout, &c.name)? {
         let held = if i.held { ", held" } else { "" };
-        println!("Installed:   {} from {}{held}", i.receipt.version, i.receipt.bucket);
+        println!(
+            "Installed:   {} from {}{held}",
+            i.receipt.version, i.receipt.bucket
+        );
     }
     match c.plan() {
         Ok(plan) => {
@@ -214,10 +224,9 @@ fn bucket(mut wpk: Wpk, command: BucketCommand) -> anyhow::Result<()> {
         BucketCommand::List => {
             for entry in &wpk.config.buckets {
                 let state = match Bucket::open(&wpk.layout, &entry.name) {
-                    Ok(bucket) => bucket.manifests().map_or_else(
-                        |e| e.to_string(),
-                        |m| format!("{} manifests", m.len()),
-                    ),
+                    Ok(bucket) => bucket
+                        .manifests()
+                        .map_or_else(|e| e.to_string(), |m| format!("{} manifests", m.len())),
                     Err(_) => "not cloned, run `wpk update`".to_owned(),
                 };
                 println!("{}\t{}\t{state}", entry.name, entry.url);
@@ -237,7 +246,10 @@ fn cache(layout: &Layout, command: CacheCommand) -> anyhow::Result<()> {
         for entry in dir.flatten() {
             let file = entry.file_name().to_string_lossy().into_owned();
             let package = file.split('#').next().unwrap_or_default().to_owned();
-            if query.as_ref().is_some_and(|q| !package.to_ascii_lowercase().contains(q.as_str())) {
+            if query
+                .as_ref()
+                .is_some_and(|q| !package.to_ascii_lowercase().contains(q.as_str()))
+            {
                 continue;
             }
             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);

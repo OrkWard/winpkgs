@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn shim_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("wpk-shim-test-{tag}-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("wpk-shim-test-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -27,7 +28,10 @@ fn cmd_exe() -> String {
 fn returns_exit_code_and_passes_args() {
     let dir = shim_dir("exit");
     let exe = make_shim(&dir, "c", &format!("path = {}\nargs = /d /c\n", cmd_exe()));
-    let out = Command::new(&exe).args(["echo", "hi&&", "exit", "7"]).output().unwrap();
+    let out = Command::new(&exe)
+        .args(["echo", "hi&&", "exit", "7"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(7));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
 }
@@ -49,10 +53,15 @@ fn batch_arguments_cannot_inject_commands() {
     let bat = dir.join("t.bat");
     std::fs::write(&bat, "@echo ARG=%1\r\n").unwrap();
     let exe = make_shim(&dir, "t", &format!("path = {}\n", bat.display()));
-    let out = Command::new(&exe).arg("a\"&echo INJECTED").output().unwrap();
+    let out = Command::new(&exe)
+        .arg("a\"&echo INJECTED")
+        .output()
+        .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        !stdout.lines().any(|l| l.contains("INJECTED") && !l.starts_with("ARG=")),
+        !stdout
+            .lines()
+            .any(|l| l.contains("INJECTED") && !l.starts_with("ARG=")),
         "{stdout}"
     );
 }

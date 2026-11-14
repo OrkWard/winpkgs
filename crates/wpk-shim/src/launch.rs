@@ -22,7 +22,9 @@ use windows_sys::Win32::System::Threading::{
 use windows_sys::Win32::UI::Shell::{
     CommandLineToArgvW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL,
+};
 
 use crate::{ShimFile, Variant, skip_program_name};
 
@@ -105,7 +107,14 @@ pub fn report(variant: Variant, message: &str) {
         Variant::Gui => {
             let text = wide(OsStr::new(message));
             let caption = wide(OsStr::new("wpk-shim"));
-            unsafe { MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), MB_OK | MB_ICONERROR) };
+            unsafe {
+                MessageBoxW(
+                    null_mut(),
+                    text.as_ptr(),
+                    caption.as_ptr(),
+                    MB_OK | MB_ICONERROR,
+                )
+            };
         }
     }
 }
@@ -190,7 +199,11 @@ fn run_elevated(variant: Variant, shim: &ShimFile, rest: &[u16]) -> Result<i32, 
     info.lpDirectory = dir.as_ref().map_or(null(), |d| d.as_ptr());
     info.nShow = SW_SHOWNORMAL;
     if unsafe { ShellExecuteExW(&mut info) } == 0 {
-        return Err(format!("cannot start {}: {}", shim.path, io::Error::last_os_error()));
+        return Err(format!(
+            "cannot start {}: {}",
+            shim.path,
+            io::Error::last_os_error()
+        ));
     }
     if info.hProcess.is_null() {
         return Ok(0);

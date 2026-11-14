@@ -56,7 +56,12 @@ impl Wpk {
     /// containing it, case-insensitively. Unparsable manifests are skipped.
     pub fn search(&self, pattern: &str) -> Result<Vec<Candidate>> {
         let pattern = pattern.to_ascii_lowercase();
-        let names: Vec<&str> = self.config.buckets.iter().map(|b| b.name.as_str()).collect();
+        let names: Vec<&str> = self
+            .config
+            .buckets
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
         let results: Vec<Result<Vec<Candidate>>> = std::thread::scope(|scope| {
             let handles: Vec<_> = names
                 .iter()
@@ -84,7 +89,10 @@ impl Wpk {
                     })
                 })
                 .collect();
-            handles.into_iter().map(|h| h.join().expect("search thread")).collect()
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("search thread"))
+                .collect()
         });
         let mut all = Vec::new();
         for result in results {
@@ -110,7 +118,9 @@ fn candidate(bucket: &Bucket, name: String, raw: Vec<u8>) -> Result<Candidate> {
 
 /// Cheap prefilter before parsing: the pattern appears in the JSON at all.
 fn raw_mentions(raw: &[u8], pattern: &str) -> bool {
-    String::from_utf8_lossy(raw).to_ascii_lowercase().contains(pattern)
+    String::from_utf8_lossy(raw)
+        .to_ascii_lowercase()
+        .contains(pattern)
 }
 
 fn provides(candidate: &Candidate, pattern: &str) -> bool {

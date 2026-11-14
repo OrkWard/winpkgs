@@ -13,7 +13,10 @@ use crate::manifest::{Download, Hash, HashAlgo};
 use crate::{Error, Layout, Result};
 
 /// Servers that special-case Scoop see the same request from wpk.
-const USER_AGENT: &str = concat!("Scoop/1.0 (+http://scoop.sh/) wpk/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!(
+    "Scoop/1.0 (+http://scoop.sh/) wpk/",
+    env!("CARGO_PKG_VERSION")
+);
 
 /// Cache file name: `<pkg>#<version>#<url>` with unsafe characters replaced,
 /// as Scoop names them.
@@ -21,7 +24,13 @@ pub fn cache_name(package: &str, version: &str, download: &Download) -> String {
     let url = format!("{}#/{}", download.url, download.file_name);
     let safe: String = url
         .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{package}#{version}#{safe}")
 }
@@ -51,7 +60,13 @@ pub fn fetch(
     let mut partial = path.clone().into_os_string();
     partial.push(".download");
     let partial = PathBuf::from(partial);
-    let result = get(&download.url, proxy, &partial, download.hash.as_ref().map(|h| h.algo), progress);
+    let result = get(
+        &download.url,
+        proxy,
+        &partial,
+        download.hash.as_ref().map(|h| h.algo),
+        progress,
+    );
     let actual = match result {
         Ok(actual) => actual,
         Err(e) => {
@@ -194,11 +209,13 @@ mod tests {
 
     #[test]
     fn digests() {
-        let dir = std::env::temp_dir().join(format!("wpk-hash-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::testutil::TempDir::new("hash");
         let file = dir.join("abc");
         std::fs::write(&file, "abc").unwrap();
-        assert_eq!(hash_file(&file, HashAlgo::Md5).unwrap(), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            hash_file(&file, HashAlgo::Md5).unwrap(),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
         assert_eq!(
             hash_file(&file, HashAlgo::Sha256).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
@@ -215,6 +232,9 @@ mod tests {
             extract_dir: None,
             extract_to: None,
         };
-        assert_eq!(cache_name("fd", "1.0", &d), "fd#1.0#https___h_a_b.zip_x_1__a_b.zip");
+        assert_eq!(
+            cache_name("fd", "1.0", &d),
+            "fd#1.0#https___h_a_b.zip_x_1__a_b.zip"
+        );
     }
 }

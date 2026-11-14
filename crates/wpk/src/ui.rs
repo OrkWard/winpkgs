@@ -52,25 +52,41 @@ fn clear(p: &mut Progress) {
 impl Reporter for Ui {
     fn event(&self, event: Event<'_>) {
         match event {
-            Event::Planned { name, version, from } => match from {
+            Event::Planned {
+                name,
+                version,
+                from,
+            } => match from {
                 Some(from) => self.print(&format!("upgrade {name} {from} -> {version}")),
                 None => self.print(&format!("install {name} {version}")),
             },
             Event::Skipped { name, reason } => self.print(&format!("{name}: skipped, {reason}")),
-            Event::Progress { name, file, done, total } => {
+            Event::Progress {
+                name,
+                file,
+                done,
+                total,
+            } => {
                 if !self.tty {
                     return;
                 }
                 let mut p = self.progress.lock().unwrap();
-                p.files.insert((name.to_owned(), file.to_owned()), (done, total));
-                if p.drawn.is_some_and(|t| t.elapsed() < Duration::from_millis(100)) {
+                p.files
+                    .insert((name.to_owned(), file.to_owned()), (done, total));
+                if p.drawn
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(100))
+                {
                     return;
                 }
                 p.drawn = Some(Instant::now());
                 let done: u64 = p.files.values().map(|f| f.0).sum();
                 let total: u64 = p.files.values().filter_map(|f| f.1).sum();
                 let count = p.files.len();
-                eprint!("\r\x1b[2Kdownloading {count} file(s): {} / {}", bytes(done), bytes(total));
+                eprint!(
+                    "\r\x1b[2Kdownloading {count} file(s): {} / {}",
+                    bytes(done),
+                    bytes(total)
+                );
                 let _ = std::io::stderr().flush();
                 p.line = true;
             }
@@ -80,7 +96,9 @@ impl Reporter for Ui {
                     f.0 = f.1.unwrap_or(f.0);
                 }
             }
-            Event::Installed { name, version } => self.print(&format!("{name} {version} installed")),
+            Event::Installed { name, version } => {
+                self.print(&format!("{name} {version} installed"))
+            }
             Event::Uninstalled { name } => self.print(&format!("{name} uninstalled")),
             Event::Notes { name, lines } => {
                 let mut text = format!("notes from {name}:");
@@ -90,7 +108,8 @@ impl Reporter for Ui {
                 self.print(&text);
             }
             Event::EnvSet { name, vars } => {
-                let mut text = format!("{name} needs these environment variables; set them in your shell:");
+                let mut text =
+                    format!("{name} needs these environment variables; set them in your shell:");
                 for (key, value) in vars {
                     text.push_str(&format!("\n  {key}={value}"));
                 }
@@ -116,5 +135,9 @@ pub fn bytes(n: u64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    if unit == 0 { format!("{n} B") } else { format!("{value:.1} {}", UNITS[unit]) }
+    if unit == 0 {
+        format!("{n} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
 }

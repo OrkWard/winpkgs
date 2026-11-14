@@ -34,7 +34,11 @@ pub const RETIRED_SUFFIX: &str = ".retired";
 /// `shim.path`.
 pub fn write(dir: &Path, name: &str, shim: &ShimFile, exes: &ShimExes) -> Result<()> {
     crate::fs::create_dir_all(dir)?;
-    let source = if is_gui(Path::new(&shim.path)) { &exes.gui } else { &exes.console };
+    let source = if is_gui(Path::new(&shim.path)) {
+        &exes.gui
+    } else {
+        &exes.console
+    };
     let exe = dir.join(format!("{name}.exe"));
     let wanted = crate::fs::read(source)?;
     if std::fs::read(&exe).ok().as_deref() != Some(&wanted[..]) {
@@ -84,7 +88,11 @@ pub fn is_gui(target: &Path) -> bool {
 fn pe_subsystem(path: &Path) -> Option<u16> {
     use std::io::Read;
     let mut head = Vec::new();
-    std::fs::File::open(path).ok()?.take(4096).read_to_end(&mut head).ok()?;
+    std::fs::File::open(path)
+        .ok()?
+        .take(4096)
+        .read_to_end(&mut head)
+        .ok()?;
     let u32_at = |at: usize| Some(u32::from_le_bytes(head.get(at..at + 4)?.try_into().ok()?));
     if head.get(..2)? != b"MZ" {
         return None;
@@ -113,16 +121,15 @@ mod tests {
 
     #[test]
     fn write_then_remove() {
-        let dir = std::env::temp_dir().join(format!("wpk-shimw-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::testutil::TempDir::new("shimw");
         let console = dir.join("c.exe");
         let gui = dir.join("g.exe");
         std::fs::write(&console, "console").unwrap();
         std::fs::write(&gui, "gui").unwrap();
         let exes = ShimExes { console, gui };
         let bin = dir.join("bin");
-        let notepad = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");
+        let notepad =
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");
         let shim = ShimFile {
             path: notepad.display().to_string(),
             args: Some("-x".into()),

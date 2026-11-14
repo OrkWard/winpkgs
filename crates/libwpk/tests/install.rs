@@ -13,7 +13,14 @@ use libwpk::{Config, Layout, Wpk, bucket, download, installed, manifest::HashAlg
 
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .status()
@@ -29,7 +36,8 @@ struct Fixture {
 
 impl Fixture {
     fn new(tag: &str) -> Fixture {
-        let root = std::env::temp_dir().join(format!("wpk-install-{tag}-{}", std::process::id()));
+        let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("wpk-install-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let upstream = root.join("upstream");
         std::fs::create_dir_all(upstream.join("bucket")).unwrap();
@@ -57,7 +65,11 @@ impl Fixture {
                 gui: root.join("gui.exe"),
             },
         };
-        Fixture { root, upstream, wpk }
+        Fixture {
+            root,
+            upstream,
+            wpk,
+        }
     }
 
     /// Publish version `v` of package `foo` and update the bucket.
@@ -74,7 +86,10 @@ impl Fixture {
         }
         zip.finish().unwrap();
         let hash = download::hash_file(&zip_path, HashAlgo::Sha256).unwrap();
-        let url = format!("file:///{}", zip_path.display().to_string().replace('\\', "/"));
+        let url = format!(
+            "file:///{}",
+            zip_path.display().to_string().replace('\\', "/")
+        );
         let manifest = serde_json::json!({
             "version": v,
             "url": url,
@@ -102,13 +117,26 @@ fn install_upgrade_gc_uninstall() {
 
     f.publish("1");
     f.wpk.install(&["foo".into()], &reporter).unwrap();
-    assert_eq!(installed::current(layout, "foo").unwrap().as_deref(), Some("1"));
+    assert_eq!(
+        installed::current(layout, "foo").unwrap().as_deref(),
+        Some("1")
+    );
     let v1 = layout.version("foo", "1");
-    let shim = |name: &str| std::fs::read_to_string(layout.bin().join(format!("{name}.shim"))).unwrap();
+    let shim =
+        |name: &str| std::fs::read_to_string(layout.bin().join(format!("{name}.shim"))).unwrap();
     assert!(shim("foo").contains(&v1.join("foo.exe").display().to_string()));
-    assert!(shim("foo2").contains(&format!("args = --data {}", layout.persist("foo").display())));
-    assert_eq!(std::fs::read_to_string(layout.bin().join("foo.exe")).unwrap(), "console shim");
-    assert_eq!(std::fs::read_to_string(layout.persist("foo").join("conf/default.ini")).unwrap(), "default");
+    assert!(shim("foo2").contains(&format!(
+        "args = --data {}",
+        layout.persist("foo").display()
+    )));
+    assert_eq!(
+        std::fs::read_to_string(layout.bin().join("foo.exe")).unwrap(),
+        "console shim"
+    );
+    assert_eq!(
+        std::fs::read_to_string(layout.persist("foo").join("conf/default.ini")).unwrap(),
+        "default"
+    );
     assert!(layout.persist("foo").join("settings.ini").is_file());
     assert!(layout.start_menu().join("Foo App.lnk").exists());
     let launcher = std::fs::read_to_string(layout.launchers("foo").join("Foo App.shim")).unwrap();
@@ -117,7 +145,10 @@ fn install_upgrade_gc_uninstall() {
     assert_eq!(receipt.bins, ["foo", "foo2"]);
     assert!(receipt.explicit);
     let logged = log.lock().unwrap().join("\n");
-    assert!(logged.contains("Notes") && logged.contains("EnvSet"), "{logged}");
+    assert!(
+        logged.contains("Notes") && logged.contains("EnvSet"),
+        "{logged}"
+    );
 
     // Reinstalling skips.
     f.wpk.install(&["foo".into()], &reporter).unwrap();
@@ -128,9 +159,15 @@ fn install_upgrade_gc_uninstall() {
     f.publish("2");
     f.wpk.upgrade(&[], &reporter).unwrap();
     let v2 = layout.version("foo", "2");
-    assert_eq!(installed::current(layout, "foo").unwrap().as_deref(), Some("2"));
+    assert_eq!(
+        installed::current(layout, "foo").unwrap().as_deref(),
+        Some("2")
+    );
     assert!(shim("foo").contains(&v2.join("foo.exe").display().to_string()));
-    assert_eq!(std::fs::read_to_string(v2.join("conf/user.ini")).unwrap(), "mine");
+    assert_eq!(
+        std::fs::read_to_string(v2.join("conf/user.ini")).unwrap(),
+        "mine"
+    );
     // The first install ran GC, so the next is not due: v1 stays for now.
     assert!(v1.exists());
 
@@ -141,7 +178,10 @@ fn install_upgrade_gc_uninstall() {
     installed::set_held(layout, "foo", true).unwrap();
     f.publish("3");
     f.wpk.upgrade(&[], &reporter).unwrap();
-    assert_eq!(installed::current(layout, "foo").unwrap().as_deref(), Some("2"));
+    assert_eq!(
+        installed::current(layout, "foo").unwrap().as_deref(),
+        Some("2")
+    );
     installed::set_held(layout, "foo", false).unwrap();
 
     f.wpk.uninstall(&["foo".into()], false, &reporter).unwrap();
@@ -167,7 +207,10 @@ fn failed_link_restores_previous_version() {
     std::fs::write(layout.start_menu(), "").unwrap();
     f.publish("2");
     assert!(f.wpk.upgrade(&[], &reporter).is_err());
-    assert_eq!(installed::current(layout, "foo").unwrap().as_deref(), Some("1"));
+    assert_eq!(
+        installed::current(layout, "foo").unwrap().as_deref(),
+        Some("1")
+    );
     assert_eq!(shim(), v1_shim);
     // Relinking hit the same shortcut failure, so v2 stays for GC.
     libwpk::gc::run(layout).unwrap();
@@ -180,9 +223,16 @@ fn rejects_unsupported_and_conflicts() {
     let f = Fixture::new("reject");
     let reporter = |_: Event<'_>| {};
     let write = |name: &str, json: serde_json::Value| {
-        std::fs::write(f.upstream.join(format!("bucket/{name}.json")), json.to_string()).unwrap();
+        std::fs::write(
+            f.upstream.join(format!("bucket/{name}.json")),
+            json.to_string(),
+        )
+        .unwrap();
     };
-    write("scripted", serde_json::json!({"version": "1", "url": "file:///x.zip", "post_install": "x"}));
+    write(
+        "scripted",
+        serde_json::json!({"version": "1", "url": "file:///x.zip", "post_install": "x"}),
+    );
     git(&f.upstream, &["add", "."]);
     git(&f.upstream, &["commit", "-q", "-m", "s"]);
     bucket::update(&f.wpk.layout, "t", None).unwrap();

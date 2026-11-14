@@ -17,7 +17,13 @@ impl Wpk {
     /// Create the layout, install the running wpk into it, clone the
     /// configured buckets and install the extractors. Safe to run again.
     pub fn init(layout: Layout, reporter: &dyn Reporter) -> Result<Wpk> {
-        for dir in [layout.bin(), layout.opt(), layout.var(), layout.state(), layout.cache().to_owned()] {
+        for dir in [
+            layout.bin(),
+            layout.opt(),
+            layout.var(),
+            layout.state(),
+            layout.cache().to_owned(),
+        ] {
             crate::fs::create_dir_all(&dir)?;
         }
         let config_path = layout.config();
@@ -32,7 +38,11 @@ impl Wpk {
             let _lock = crate::install::lock(&layout)?;
             install_self(&layout)?
         };
-        let wpk = Wpk { layout, config, shims };
+        let wpk = Wpk {
+            layout,
+            config,
+            shims,
+        };
 
         wpk.update(|name, result| match result {
             Ok(()) => {}

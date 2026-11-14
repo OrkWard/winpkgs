@@ -134,7 +134,8 @@ mod tests {
 
     #[test]
     fn parse_and_render() {
-        let shim = ShimFile::parse("path = C:\\a b\\x.exe\r\nargs = -c \"d e\"\ndir = C:\\a b\n").unwrap();
+        let shim =
+            ShimFile::parse("path = C:\\a b\\x.exe\r\nargs = -c \"d e\"\ndir = C:\\a b\n").unwrap();
         assert_eq!(shim.path, "C:\\a b\\x.exe");
         assert_eq!(shim.args.as_deref(), Some("-c \"d e\""));
         assert_eq!(shim.dir.as_deref(), Some("C:\\a b"));
@@ -149,7 +150,10 @@ mod tests {
 
     #[test]
     fn skip_program_name_cases() {
-        assert_eq!(skip_program_name(&wide("\"C:\\a b\\fd.exe\"  -H x")), wide("-H x"));
+        assert_eq!(
+            skip_program_name(&wide("\"C:\\a b\\fd.exe\"  -H x")),
+            wide("-H x")
+        );
         assert_eq!(skip_program_name(&wide("fd.exe\t-H")), wide("-H"));
         assert_eq!(skip_program_name(&wide("fd")), wide(""));
         assert_eq!(skip_program_name(&wide("\"fd")), wide(""));

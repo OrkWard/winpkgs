@@ -19,6 +19,8 @@ pub mod persist;
 pub mod query;
 pub mod shim;
 pub mod shortcut;
+#[cfg(test)]
+mod testutil;
 mod wpk;
 
 pub use config::Config;

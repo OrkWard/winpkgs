@@ -49,7 +49,8 @@ impl Layout {
         if let Some(dir) = non_empty_env(START_MENU_ENV) {
             layout.start_menu = normalize(dir);
         } else if let Some(appdata) = non_empty_env("APPDATA") {
-            layout.start_menu = normalize(appdata.join(r"Microsoft\Windows\Start Menu\Programs\wpk"));
+            layout.start_menu =
+                normalize(appdata.join(r"Microsoft\Windows\Start Menu\Programs\wpk"));
         }
         Ok(layout)
     }
@@ -88,7 +89,13 @@ impl Layout {
     pub fn version(&self, name: &str, version: &str) -> PathBuf {
         let safe: String = version
             .chars()
-            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .map(|c| {
+                if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
             .collect();
         self.package(name).join(safe)
     }

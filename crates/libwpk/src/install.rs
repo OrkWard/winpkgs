@@ -15,19 +15,48 @@ use crate::{Error, Layout, Result, Wpk, archive, download, gc, persist, shim, sh
 #[derive(Debug)]
 pub enum Event<'a> {
     /// Will be installed, or upgraded from `from`.
-    Planned { name: &'a str, version: &'a str, from: Option<&'a str> },
+    Planned {
+        name: &'a str,
+        version: &'a str,
+        from: Option<&'a str>,
+    },
     /// Nothing to do, and why.
-    Skipped { name: &'a str, reason: &'a str },
-    Progress { name: &'a str, file: &'a str, done: u64, total: Option<u64> },
-    Downloaded { name: &'a str, file: &'a str },
-    Installed { name: &'a str, version: &'a str },
-    Uninstalled { name: &'a str },
+    Skipped {
+        name: &'a str,
+        reason: &'a str,
+    },
+    Progress {
+        name: &'a str,
+        file: &'a str,
+        done: u64,
+        total: Option<u64>,
+    },
+    Downloaded {
+        name: &'a str,
+        file: &'a str,
+    },
+    Installed {
+        name: &'a str,
+        version: &'a str,
+    },
+    Uninstalled {
+        name: &'a str,
+    },
     /// The manifest's `notes`.
-    Notes { name: &'a str, lines: &'a [String] },
+    Notes {
+        name: &'a str,
+        lines: &'a [String],
+    },
     /// `env_set` entries the user has to set up.
-    EnvSet { name: &'a str, vars: &'a BTreeMap<String, String> },
+    EnvSet {
+        name: &'a str,
+        vars: &'a BTreeMap<String, String>,
+    },
     /// Optional companions from `suggest`.
-    Suggest { name: &'a str, packages: Vec<&'a str> },
+    Suggest {
+        name: &'a str,
+        packages: Vec<&'a str>,
+    },
     Warning(String),
 }
 
@@ -59,7 +88,10 @@ impl Wpk {
             let candidate = self.find(query)?;
             if let Some(installed) = installed::get(&self.layout, &candidate.name)? {
                 let reason = format!("{} is already installed", installed.receipt.version);
-                reporter.event(Event::Skipped { name: &candidate.name, reason: &reason });
+                reporter.event(Event::Skipped {
+                    name: &candidate.name,
+                    reason: &reason,
+                });
                 continue;
             }
             self.add_job(candidate, true, &mut jobs, &mut seen, &mut Vec::new())?;
@@ -78,7 +110,8 @@ impl Wpk {
             names
                 .iter()
                 .map(|name| {
-                    installed::get(&self.layout, name)?.ok_or_else(|| Error::NotInstalled(name.clone()))
+                    installed::get(&self.layout, name)?
+                        .ok_or_else(|| Error::NotInstalled(name.clone()))
                 })
                 .collect::<Result<_>>()?
         };
@@ -88,7 +121,10 @@ impl Wpk {
         for target in targets {
             let name = target.name.as_str();
             if target.held {
-                reporter.event(Event::Skipped { name, reason: "held" });
+                reporter.event(Event::Skipped {
+                    name,
+                    reason: "held",
+                });
                 continue;
             }
             let query = format!("{}/{name}", target.receipt.bucket);
@@ -100,10 +136,20 @@ impl Wpk {
                 }
             };
             // Versions differing only in case share a directory.
-            if candidate.manifest.version.eq_ignore_ascii_case(&target.receipt.version) {
+            if candidate
+                .manifest
+                .version
+                .eq_ignore_ascii_case(&target.receipt.version)
+            {
                 continue;
             }
-            self.add_job(candidate, target.receipt.explicit, &mut jobs, &mut seen, &mut Vec::new())?;
+            self.add_job(
+                candidate,
+                target.receipt.explicit,
+                &mut jobs,
+                &mut seen,
+                &mut Vec::new(),
+            )?;
         }
         self.run_jobs(jobs, reporter)
     }
@@ -127,7 +173,9 @@ impl Wpk {
         if !crate::layout::is_safe_name(&candidate.name) || !crate::layout::is_safe_name(version) {
             return Err(Error::Unsupported {
                 package: candidate.ident(),
-                reason: crate::manifest::Unsupported::Malformed(format!("name or version `{version}`")),
+                reason: crate::manifest::Unsupported::Malformed(format!(
+                    "name or version `{version}`"
+                )),
             });
         }
         let plan = candidate.plan().map_err(|reason| Error::Unsupported {
@@ -174,25 +222,46 @@ impl Wpk {
             let tools = self.tools();
             self.deploy(job, &files, &tools, &self.shims)?;
             let c = &job.candidate;
-            reporter.event(Event::Installed { name: &c.name, version: &c.manifest.version });
+            reporter.event(Event::Installed {
+                name: &c.name,
+                version: &c.manifest.version,
+            });
             if !c.manifest.notes.0.is_empty() {
-                reporter.event(Event::Notes { name: &c.name, lines: &c.manifest.notes.0 });
+                reporter.event(Event::Notes {
+                    name: &c.name,
+                    lines: &c.manifest.notes.0,
+                });
             }
             if !job.plan.env_set.is_empty() {
                 let vars = Vars::of(&self.layout, &c.name, &c.manifest.version);
-                let expanded: BTreeMap<String, String> =
-                    job.plan.env_set.iter().map(|(k, v)| (k.clone(), vars.expand(v))).collect();
-                reporter.event(Event::EnvSet { name: &c.name, vars: &expanded });
+                let expanded: BTreeMap<String, String> = job
+                    .plan
+                    .env_set
+                    .iter()
+                    .map(|(k, v)| (k.clone(), vars.expand(v)))
+                    .collect();
+                reporter.event(Event::EnvSet {
+                    name: &c.name,
+                    vars: &expanded,
+                });
             }
             let suggested: Vec<&str> = c
                 .manifest
                 .suggest
                 .values()
                 .flat_map(|list| list.0.iter().map(String::as_str))
-                .filter(|s| installed::current(&self.layout, split_query(s).1).ok().flatten().is_none())
+                .filter(|s| {
+                    installed::current(&self.layout, split_query(s).1)
+                        .ok()
+                        .flatten()
+                        .is_none()
+                })
                 .collect();
             if !suggested.is_empty() {
-                reporter.event(Event::Suggest { name: &c.name, packages: suggested });
+                reporter.event(Event::Suggest {
+                    name: &c.name,
+                    packages: suggested,
+                });
             }
         }
         if let Err(e) = gc::run_if_due(self) {
@@ -206,10 +275,16 @@ impl Wpk {
         let mut owners: HashMap<String, String> = HashMap::new();
         for other in installed::list(&self.layout, |_, _| {})? {
             for bin in &other.receipt.bins {
-                owners.insert(format!("bin:{}", bin.to_ascii_lowercase()), other.name.clone());
+                owners.insert(
+                    format!("bin:{}", bin.to_ascii_lowercase()),
+                    other.name.clone(),
+                );
             }
             for lnk in &other.receipt.shortcuts {
-                owners.insert(format!("lnk:{}", lnk.to_ascii_lowercase()), other.name.clone());
+                owners.insert(
+                    format!("lnk:{}", lnk.to_ascii_lowercase()),
+                    other.name.clone(),
+                );
             }
         }
         for job in jobs {
@@ -220,7 +295,10 @@ impl Wpk {
                 .iter()
                 .map(|b| (format!("bin:{}", b.name.to_ascii_lowercase()), &b.name))
                 .chain(job.plan.shortcuts.iter().map(|s| {
-                    (format!("lnk:{}", shortcut_file(&s.name).to_ascii_lowercase()), &s.name)
+                    (
+                        format!("lnk:{}", shortcut_file(&s.name).to_ascii_lowercase()),
+                        &s.name,
+                    )
                 }));
             for (key, shown) in keys {
                 match owners.get(&key) {
@@ -250,7 +328,12 @@ impl Wpk {
                         let name = job.candidate.name.as_str();
                         let file = dl.file_name.as_str();
                         let progress = |done, total| {
-                            reporter.event(Event::Progress { name, file, done, total });
+                            reporter.event(Event::Progress {
+                                name,
+                                file,
+                                done,
+                                total,
+                            });
                         };
                         let result = download::fetch(
                             &self.layout,
@@ -303,10 +386,16 @@ impl Wpk {
             message,
         };
         if let Some(previous) = &job.previous
-            && layout.version(name, &previous.receipt.version).to_string_lossy().to_lowercase()
+            && layout
+                .version(name, &previous.receipt.version)
+                .to_string_lossy()
+                .to_lowercase()
                 == dir.to_string_lossy().to_lowercase()
         {
-            return Err(install_err(format!("{version} would replace the installed {}", previous.receipt.version)));
+            return Err(install_err(format!(
+                "{version} would replace the installed {}",
+                previous.receipt.version
+            )));
         }
 
         // A leftover of this version that is not current, e.g. from a
@@ -341,12 +430,18 @@ impl Wpk {
             persist::link(&dir, &layout.persist(name), &job.plan.persist)?;
             for bin in &job.plan.bins {
                 if !dir.join(&bin.target).is_file() {
-                    return Err(install_err(format!("bin '{}' not found in the package", bin.target)));
+                    return Err(install_err(format!(
+                        "bin '{}' not found in the package",
+                        bin.target
+                    )));
                 }
             }
             for s in &job.plan.shortcuts {
                 if !dir.join(&s.target).is_file() {
-                    return Err(install_err(format!("shortcut target '{}' not found", s.target)));
+                    return Err(install_err(format!(
+                        "shortcut target '{}' not found",
+                        s.target
+                    )));
                 }
             }
             let records = layout.records(name, version);
@@ -471,8 +566,15 @@ fn link_version(
     for s in &plan.shortcuts {
         crate::fs::create_dir_all(&launchers)?;
         let ico = launchers.join(format!("{}.ico", launcher_name(&s.name)));
-        let source = s.icon.as_ref().map(|i| dir.join(i)).unwrap_or_else(|| dir.join(&s.target));
-        let has_icon = if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("ico")) {
+        let source = s
+            .icon
+            .as_ref()
+            .map(|i| dir.join(i))
+            .unwrap_or_else(|| dir.join(&s.target));
+        let has_icon = if source
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("ico"))
+        {
             std::fs::copy(&source, &ico).is_ok()
         } else {
             shortcut::extract_icon(&source, &ico)?
@@ -500,7 +602,10 @@ fn link_version(
         links.launchers.push(launcher.clone());
         shim::write(&launchers, &launcher, &shim, exes)?;
         let file = shortcut_file(&s.name);
-        let aumid = s.aumid.clone().unwrap_or_else(|| shortcut::aumid(name, &s.name));
+        let aumid = s
+            .aumid
+            .clone()
+            .unwrap_or_else(|| shortcut::aumid(name, &s.name));
         links.shortcuts.push(file.clone());
         shortcut::create(
             &layout.start_menu().join(&file),
@@ -514,15 +619,20 @@ fn link_version(
 
 /// Link the previously installed version again from its saved manifest.
 fn relink_previous(layout: &Layout, name: &str, previous: &Receipt, exes: &ShimExes) -> Result<()> {
-    let path = layout.records(name, &previous.version).join("manifest.json");
-    let manifest = crate::Manifest::parse(&crate::fs::read(&path)?).map_err(|e| Error::Corrupt {
-        path: path.clone(),
-        message: e.to_string(),
-    })?;
-    let plan = manifest.plan(previous.arch).map_err(|reason| Error::Unsupported {
-        package: name.to_owned(),
-        reason,
-    })?;
+    let path = layout
+        .records(name, &previous.version)
+        .join("manifest.json");
+    let manifest =
+        crate::Manifest::parse(&crate::fs::read(&path)?).map_err(|e| Error::Corrupt {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
+    let plan = manifest
+        .plan(previous.arch)
+        .map_err(|reason| Error::Unsupported {
+            package: name.to_owned(),
+            reason,
+        })?;
     let mut links = Receipt {
         bins: Vec::new(),
         launchers: Vec::new(),
@@ -572,7 +682,13 @@ fn shortcut_file(name: &str) -> String {
 /// File name of the launcher shim for a shortcut name.
 fn launcher_name(name: &str) -> String {
     name.chars()
-        .map(|c| if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .map(|c| {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -608,5 +724,7 @@ fn link_or_copy(from: &Path, to: &Path) -> Result<()> {
     if std::fs::hard_link(from, to).is_ok() {
         return Ok(());
     }
-    std::fs::copy(from, to).map(|_| ()).map_err(crate::fs::io_error(to))
+    std::fs::copy(from, to)
+        .map(|_| ())
+        .map_err(crate::fs::io_error(to))
 }

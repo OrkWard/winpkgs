@@ -29,7 +29,13 @@ pub fn extract_icon(exe: &Path, ico: &Path) -> Result<bool> {
 pub fn aumid(package: &str, name: &str) -> String {
     let id: String = format!("wpk.{package}.{name}")
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     id.chars().take(128).collect()
 }
@@ -43,7 +49,8 @@ mod imp {
     use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
     use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
     use windows::Win32::System::Com::{
-        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, IPersistFile,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        IPersistFile,
     };
     use windows::Win32::System::Variant::VT_LPWSTR;
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
@@ -51,11 +58,16 @@ mod imp {
     use windows::core::{HSTRING, Interface, PWSTR};
     use windows_sys::Win32::Foundation::FreeLibrary;
     use windows_sys::Win32::System::LibraryLoader::{
-        EnumResourceNamesW, FindResourceW, LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE,
-        LoadLibraryExW, LoadResource, LockResource, SizeofResource,
+        EnumResourceNamesW, FindResourceW, LOAD_LIBRARY_AS_DATAFILE,
+        LOAD_LIBRARY_AS_IMAGE_RESOURCE, LoadLibraryExW, LoadResource, LockResource, SizeofResource,
     };
 
-    pub fn create(lnk: &Path, target: &Path, icon: Option<&Path>, aumid: &str) -> windows::core::Result<()> {
+    pub fn create(
+        lnk: &Path,
+        target: &Path,
+        icon: Option<&Path>,
+        aumid: &str,
+    ) -> windows::core::Result<()> {
         unsafe {
             // Fails harmlessly when this thread already joined another apartment.
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -111,7 +123,12 @@ mod imp {
         }
     }
 
-    unsafe extern "system" fn first_name(_: *mut c_void, _: *const u16, name: *const u16, out: isize) -> i32 {
+    unsafe extern "system" fn first_name(
+        _: *mut c_void,
+        _: *const u16,
+        name: *const u16,
+        out: isize,
+    ) -> i32 {
         unsafe { *(out as *mut *const u16) = name };
         0
     }
@@ -176,10 +193,9 @@ mod tests {
 
     #[test]
     fn icon_and_shortcut() {
-        let dir = std::env::temp_dir().join(format!("wpk-lnk-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let notepad = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");
+        let dir = crate::testutil::TempDir::new("lnk");
+        let notepad = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join(r"System32\notepad.exe");
         let ico = dir.join("n.ico");
         assert!(extract_icon(&notepad, &ico).unwrap());
         let bytes = std::fs::read(&ico).unwrap();

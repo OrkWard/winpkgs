@@ -41,12 +41,18 @@ pub fn unpack(file: &Path, download: &Download, dir: &Path, tools: &Tools) -> Re
             }
             Extract::Msi => extract_msi(file, &tmp)?,
             Extract::Inno => {
-                let tool = tools.innounp.as_deref().ok_or(Error::MissingTool("innounp"))?;
+                let tool = tools
+                    .innounp
+                    .as_deref()
+                    .ok_or(Error::MissingTool("innounp"))?;
                 extract_inno(tool, file, &tmp, download.extract_dir.as_deref())?;
                 tmp.clone()
             }
             Extract::SevenZip => {
-                let tool = tools.seven_zip.as_deref().ok_or(Error::MissingTool("7zip"))?;
+                let tool = tools
+                    .seven_zip
+                    .as_deref()
+                    .ok_or(Error::MissingTool("7zip"))?;
                 extract_7z(tool, file, &tmp)?;
                 tmp.clone()
             }
@@ -128,14 +134,23 @@ fn read_log_tail(log: &Path) -> String {
     };
     let text = match bytes.strip_prefix(&[0xFF, 0xFE]) {
         Some(utf16) => {
-            let units: Vec<u16> = utf16.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+            let units: Vec<u16> = utf16
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect();
             String::from_utf16_lossy(&units)
         }
         None => String::from_utf8_lossy(&bytes).into_owned(),
     };
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let tail = lines[lines.len().saturating_sub(8)..].join("\n");
-    if tail.is_empty() { tail } else { format!(":\n{tail}") }
+    if tail.is_empty() {
+        tail
+    } else {
+        format!(":\n{tail}")
+    }
 }
 
 fn extract_inno(tool: &Path, file: &Path, dest: &Path, extract_dir: Option<&str>) -> Result<()> {
@@ -147,7 +162,12 @@ fn extract_inno(tool: &Path, file: &Path, dest: &Path, extract_dir: Option<&str>
     let mut dest_arg = std::ffi::OsString::from("-d");
     dest_arg.push(dest);
     run_tool(
-        Command::new(tool).arg("-x").arg(dest_arg).arg(file).arg("-y").arg(filter),
+        Command::new(tool)
+            .arg("-x")
+            .arg(dest_arg)
+            .arg(file)
+            .arg("-y")
+            .arg(filter),
         file,
     )
 }
@@ -167,7 +187,11 @@ fn extract_7z(tool: &Path, file: &Path, dest: &Path) -> Result<()> {
     };
     seven(file, dest)?;
     // `.tar.gz` and friends unpack to a lone `.tar`.
-    let name = file.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+    let name = file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
     let mut exts = name.rsplit('.');
     let ext = exts.next().unwrap_or_default();
     let tarball = exts.next() == Some("tar")
@@ -180,7 +204,10 @@ fn extract_7z(tool: &Path, file: &Path, dest: &Path) -> Result<()> {
             .collect();
         if let [entry] = entries.as_slice() {
             let inner = entry.path();
-            if inner.extension().is_some_and(|e| e.eq_ignore_ascii_case("tar")) {
+            if inner
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("tar"))
+            {
                 seven(&inner, dest)?;
                 crate::fs::remove_file(&inner)?;
             }
@@ -192,12 +219,19 @@ fn extract_7z(tool: &Path, file: &Path, dest: &Path) -> Result<()> {
 fn run_tool(command: &mut Command, file: &Path) -> Result<()> {
     let output = command.output().map_err(|e| Error::Extract {
         file: file.display().to_string(),
-        message: format!("cannot run {}: {e}", command.get_program().to_string_lossy()),
+        message: format!(
+            "cannot run {}: {e}",
+            command.get_program().to_string_lossy()
+        ),
     })?;
     if output.status.success() {
         return Ok(());
     }
-    let mut message = format!("{} failed ({})", command.get_program().to_string_lossy(), output.status);
+    let mut message = format!(
+        "{} failed ({})",
+        command.get_program().to_string_lossy(),
+        output.status
+    );
     for stream in [&output.stdout, &output.stderr] {
         let text = String::from_utf8_lossy(stream);
         let text = text.trim();
@@ -242,11 +276,8 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn temp(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("wpk-archive-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn temp(tag: &str) -> crate::testutil::TempDir {
+        crate::testutil::TempDir::new(&format!("archive-{tag}"))
     }
 
     fn download(name: &str, extract_dir: Option<&str>, extract_to: Option<&str>) -> Download {
@@ -263,7 +294,8 @@ mod tests {
     fn write_zip(path: &Path, files: &[(&str, &str)]) {
         let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
         for (name, content) in files {
-            zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(content.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
@@ -274,8 +306,17 @@ mod tests {
         let dir = temp("zip");
         let file = dir.join("a.zip");
         write_zip(&file, &[("top/bin/x.exe", "x"), ("top/readme", "r")]);
-        unpack(&file, &download("a.zip", Some("top"), Some("sub")), &dir, &Tools::default()).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("sub/bin/x.exe")).unwrap(), "x");
+        unpack(
+            &file,
+            &download("a.zip", Some("top"), Some("sub")),
+            &dir,
+            &Tools::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("sub/bin/x.exe")).unwrap(),
+            "x"
+        );
         assert!(!file.exists());
         assert!(!dir.join(".wpk-extract-a.zip").exists());
     }
@@ -285,7 +326,12 @@ mod tests {
         let dir = temp("missing");
         let file = dir.join("a.zip");
         write_zip(&file, &[("x", "x")]);
-        let err = unpack(&file, &download("a.zip", Some("nope"), None), &dir, &Tools::default());
+        let err = unpack(
+            &file,
+            &download("a.zip", Some("nope"), None),
+            &dir,
+            &Tools::default(),
+        );
         assert!(matches!(err, Err(Error::Extract { .. })));
         assert!(!dir.join(".wpk-extract-a.zip").exists());
     }
@@ -297,7 +343,13 @@ mod tests {
         std::fs::create_dir_all(&stage).unwrap();
         let file = stage.join("tool.exe");
         std::fs::write(&file, "t").unwrap();
-        unpack(&file, &download("tool.exe", None, None), &dir, &Tools::default()).unwrap();
+        unpack(
+            &file,
+            &download("tool.exe", None, None),
+            &dir,
+            &Tools::default(),
+        )
+        .unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("tool.exe")).unwrap(), "t");
     }
 
@@ -306,7 +358,12 @@ mod tests {
         let dir = temp("no7z");
         let file = dir.join("a.7z");
         std::fs::write(&file, "x").unwrap();
-        let err = unpack(&file, &download("a.7z", None, None), &dir, &Tools::default());
+        let err = unpack(
+            &file,
+            &download("a.7z", None, None),
+            &dir,
+            &Tools::default(),
+        );
         assert!(matches!(err, Err(Error::MissingTool("7zip"))));
     }
 
@@ -332,7 +389,12 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        let status = Command::new(&seven).args(["a", "-tgzip", "-bso0"]).arg(&tgz).arg(&tar).status().unwrap();
+        let status = Command::new(&seven)
+            .args(["a", "-tgzip", "-bso0"])
+            .arg(&tgz)
+            .arg(&tar)
+            .status()
+            .unwrap();
         assert!(status.success());
         std::fs::remove_file(&tar).unwrap();
         let out = dir.join("out");
@@ -341,7 +403,13 @@ mod tests {
             seven_zip: Some(seven),
             innounp: None,
         };
-        unpack(&tgz, &download("a.tar.gz", Some("pkg-1"), None), &out, &tools).unwrap();
+        unpack(
+            &tgz,
+            &download("a.tar.gz", Some("pkg-1"), None),
+            &out,
+            &tools,
+        )
+        .unwrap();
         assert_eq!(std::fs::read_to_string(out.join("f.txt")).unwrap(), "f");
     }
 }

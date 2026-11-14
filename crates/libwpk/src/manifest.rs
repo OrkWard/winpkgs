@@ -303,7 +303,11 @@ impl Extract {
         } else if name.ends_with(".msi") {
             Extract::Msi
         } else if name.ends_with(".exe") {
-            if innosetup { Extract::Inno } else { Extract::None }
+            if innosetup {
+                Extract::Inno
+            } else {
+                Extract::None
+            }
         } else if is_7z_format(&name) {
             Extract::SevenZip
         } else {
@@ -382,7 +386,10 @@ impl Manifest {
     pub fn plan(&self, arch: Arch) -> Result<Plan, Unsupported> {
         let specific = self.arch_fields(arch);
         for fields in [Some(&self.common), specific].into_iter().flatten() {
-            if let Some(field) = REJECTED_FIELDS.iter().find(|f| fields.rest.contains_key(**f)) {
+            if let Some(field) = REJECTED_FIELDS
+                .iter()
+                .find(|f| fields.rest.contains_key(**f))
+            {
                 return Err(Unsupported::Field((*field).to_owned()));
             }
         }
@@ -431,7 +438,8 @@ impl Manifest {
                 (None, None)
             } else {
                 archives += 1;
-                let at = |list: &[String]| list.get(archives - 1).cloned().filter(|d| !d.is_empty());
+                let at =
+                    |list: &[String]| list.get(archives - 1).cloned().filter(|d| !d.is_empty());
                 (at(&extract_dirs), at(&extract_tos))
             };
             downloads.push(Download {
@@ -523,7 +531,11 @@ fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
         if let Some(dir) = &d.extract_dir {
             // innounp takes `{app}`-style extract_dir values.
             let inno = d.extract == Extract::Inno && dir.starts_with('{');
-            let inside = if inno { is_relative_inside(&dir.replace(['{', '}'], "")) } else { is_relative_inside(dir) };
+            let inside = if inno {
+                is_relative_inside(&dir.replace(['{', '}'], ""))
+            } else {
+                is_relative_inside(dir)
+            };
             if !inside {
                 return Err(bad("extract_dir", dir));
             }
@@ -539,9 +551,17 @@ fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
         .iter()
         .map(|b| ("bin", &b.target))
         .chain(plan.shortcuts.iter().map(|s| ("shortcut", &s.target)))
-        .chain(plan.shortcuts.iter().filter_map(|s| s.icon.as_ref().map(|i| ("icon", i))))
+        .chain(
+            plan.shortcuts
+                .iter()
+                .filter_map(|s| s.icon.as_ref().map(|i| ("icon", i))),
+        )
         .chain(plan.shortcuts.iter().map(|s| ("shortcut", &s.name)))
-        .chain(plan.persist.iter().flat_map(|p| [("persist", &p.source), ("persist", &p.target)]));
+        .chain(
+            plan.persist
+                .iter()
+                .flat_map(|p| [("persist", &p.source), ("persist", &p.target)]),
+        );
     for (what, path) in paths {
         if !is_relative_inside(path) {
             return Err(bad(what, path));
@@ -559,7 +579,10 @@ fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
         .chain(plan.shortcuts.iter().filter_map(|s| s.args.as_ref()));
     for arg in args {
         if has_control(arg) {
-            return Err(Unsupported::Malformed(format!("arguments `{}`", arg.escape_debug())));
+            return Err(Unsupported::Malformed(format!(
+                "arguments `{}`",
+                arg.escape_debug()
+            )));
         }
     }
     Ok(())
@@ -576,13 +599,15 @@ fn is_relative_inside(path: &str) -> bool {
         && !path.contains(':')
         && !has_control(path)
         && !path.starts_with(['/', '\\'])
-        && path
-            .split(['/', '\\'])
-            .all(|part| part.is_empty() || part == "." || !part.chars().all(|c| c == '.' || c == ' '))
+        && path.split(['/', '\\']).all(|part| {
+            part.is_empty() || part == "." || !part.chars().all(|c| c == '.' || c == ' ')
+        })
 }
 
 fn check_runnable(target: &str) -> Result<(), Unsupported> {
-    let ext = target.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+    let ext = target
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase());
     match ext {
         Some(ext) if RUNNABLE_EXTENSIONS.contains(&ext.as_str()) => Ok(()),
         _ => Err(Unsupported::Target(target.to_owned())),
@@ -665,7 +690,10 @@ mod tests {
         assert_eq!(x64.downloads.len(), 1);
         assert_eq!(x64.downloads[0].file_name, "fd-x64.zip");
         assert_eq!(x64.downloads[0].extract_dir.as_deref(), Some("fd-x64"));
-        assert_eq!(x64.downloads[0].hash.as_ref().unwrap().algo, HashAlgo::Sha256);
+        assert_eq!(
+            x64.downloads[0].hash.as_ref().unwrap().algo,
+            HashAlgo::Sha256
+        );
         assert_eq!(
             x64.bins,
             vec![
@@ -692,26 +720,34 @@ mod tests {
 
     #[test]
     fn arm64_falls_back_to_x64() {
-        let m = manifest(r#"{"version": "1", "architecture": {"64bit": {"url": "https://h/a.zip"}}}"#);
+        let m =
+            manifest(r#"{"version": "1", "architecture": {"64bit": {"url": "https://h/a.zip"}}}"#);
         assert_eq!(m.plan(Arch::Arm64).unwrap().downloads[0].file_name, "a.zip");
     }
 
     #[test]
     fn rejects_scripts_and_path_changes() {
         let m = manifest(r#"{"version": "1", "url": "https://h/a.zip", "post_install": "x"}"#);
-        assert_eq!(m.plan(Arch::X64), Err(Unsupported::Field("post_install".into())));
+        assert_eq!(
+            m.plan(Arch::X64),
+            Err(Unsupported::Field("post_install".into()))
+        );
         let m = manifest(
             r#"{"version": "1", "url": "https://h/a.zip",
                 "architecture": {"64bit": {"env_add_path": "bin"}}}"#,
         );
-        assert_eq!(m.plan(Arch::X64), Err(Unsupported::Field("env_add_path".into())));
+        assert_eq!(
+            m.plan(Arch::X64),
+            Err(Unsupported::Field("env_add_path".into()))
+        );
     }
 
     #[test]
     fn rejects_other_targets_and_32bit_only() {
         let m = manifest(r#"{"version": "1", "url": "https://h/a.zip", "bin": "a.ps1"}"#);
         assert_eq!(m.plan(Arch::X64), Err(Unsupported::Target("a.ps1".into())));
-        let m = manifest(r#"{"version": "1", "architecture": {"32bit": {"url": "https://h/a.zip"}}}"#);
+        let m =
+            manifest(r#"{"version": "1", "architecture": {"32bit": {"url": "https://h/a.zip"}}}"#);
         assert_eq!(m.plan(Arch::X64), Err(Unsupported::Arch(Arch::X64)));
     }
 
@@ -728,7 +764,10 @@ mod tests {
         let plan = m.plan(Arch::X64).unwrap();
         assert_eq!(plan.shortcuts[0].args, None);
         assert_eq!(plan.shortcuts[0].icon.as_deref(), Some("w.ico"));
-        assert_eq!(plan.shortcuts[0].aumid.as_deref(), Some("org.wezfurlong.wezterm"));
+        assert_eq!(
+            plan.shortcuts[0].aumid.as_deref(),
+            Some("org.wezfurlong.wezterm")
+        );
         assert_eq!(plan.persist[0].target, "conf");
         assert_eq!(plan.persist[1].target, "d");
     }
@@ -739,7 +778,16 @@ mod tests {
         assert_eq!(Extract::of("a.exe", false), Extract::None);
         assert_eq!(Extract::of("a.exe", true), Extract::Inno);
         assert_eq!(Extract::of("a.msi", true), Extract::Msi);
-        for name in ["a.tar.gz", "a.tgz", "a.7z", "a.tbz2", "a.bzip2", "a.tar.zst", "a.7z.download", "a.nupkg"] {
+        for name in [
+            "a.tar.gz",
+            "a.tgz",
+            "a.7z",
+            "a.tbz2",
+            "a.bzip2",
+            "a.tar.zst",
+            "a.7z.download",
+            "a.nupkg",
+        ] {
             assert_eq!(Extract::of(name, false), Extract::SevenZip, "{name}");
         }
         for name in ["a.jar", "7z", "a.7z.v2", "a.dll", "a.tz3"] {
@@ -773,9 +821,17 @@ mod tests {
             r#"{"version": "1", "url": "https://h/a.zip", "bin": [["a.exe", "a", "x\npath = y"]]}"#,
             r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\..\\.."}"#,
         ] {
-            assert!(matches!(manifest(json).plan(Arch::X64), Err(Unsupported::Malformed(_))), "{json}");
+            assert!(
+                matches!(
+                    manifest(json).plan(Arch::X64),
+                    Err(Unsupported::Malformed(_))
+                ),
+                "{json}"
+            );
         }
-        let ok = manifest(r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\x", "bin": ".\\a.exe"}"#);
+        let ok = manifest(
+            r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\x", "bin": ".\\a.exe"}"#,
+        );
         assert!(ok.plan(Arch::X64).is_ok());
     }
 
@@ -785,13 +841,23 @@ mod tests {
             r#"{"version": "1", "extract_to": "top",
                 "architecture": {"64bit": {"url": "https://h/a.zip", "extract_to": "x64"}}}"#,
         );
-        assert_eq!(m.plan(Arch::X64).unwrap().downloads[0].extract_to.as_deref(), Some("x64"));
+        assert_eq!(
+            m.plan(Arch::X64).unwrap().downloads[0]
+                .extract_to
+                .as_deref(),
+            Some("x64")
+        );
     }
 
     #[test]
     fn hash_forms() {
         assert_eq!(Hash::parse(&"a".repeat(40)).unwrap().algo, HashAlgo::Sha1);
-        assert_eq!(Hash::parse(&format!("sha512:{}", "A".repeat(128))).unwrap().hex, "a".repeat(128));
+        assert_eq!(
+            Hash::parse(&format!("sha512:{}", "A".repeat(128)))
+                .unwrap()
+                .hex,
+            "a".repeat(128)
+        );
         assert!(Hash::parse("sha256:abc").is_none());
         assert!(Hash::parse(&"g".repeat(64)).is_none());
     }
@@ -801,10 +867,18 @@ mod tests {
     #[test]
     #[ignore]
     fn scoop_buckets() {
-        let Some(home) = std::env::home_dir() else { return };
+        let Some(home) = std::env::home_dir() else {
+            return;
+        };
         for bucket in ["main", "extras"] {
-            let dir = home.join("scoop").join("buckets").join(bucket).join("bucket");
-            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            let dir = home
+                .join("scoop")
+                .join("buckets")
+                .join(bucket)
+                .join("bucket");
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             let (mut total, mut ok, mut broken) = (0, 0, Vec::new());
             let mut reasons = BTreeMap::<String, usize>::new();
             for entry in entries.flatten() {
@@ -816,7 +890,9 @@ mod tests {
                         Ok(_) => ok += 1,
                         Err(e) => {
                             let key = match e {
-                                Unsupported::Target(t) => format!("target .{}", t.rsplit('.').next().unwrap_or("")),
+                                Unsupported::Target(t) => {
+                                    format!("target .{}", t.rsplit('.').next().unwrap_or(""))
+                                }
                                 Unsupported::Hash(_) => "hash".into(),
                                 e => e.to_string(),
                             };
@@ -825,7 +901,10 @@ mod tests {
                     },
                 }
             }
-            println!("{bucket}: {total} total, {ok} installable, {} unparsable", broken.len());
+            println!(
+                "{bucket}: {total} total, {ok} installable, {} unparsable",
+                broken.len()
+            );
             for b in &broken {
                 println!("  {b}");
             }
