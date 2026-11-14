@@ -14,6 +14,7 @@ pub mod layout;
 pub mod manifest;
 pub mod persist;
 pub mod shim;
+pub mod shortcut;
 mod wpk;
 
 pub use config::Config;

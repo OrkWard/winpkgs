@@ -52,4 +52,7 @@ pub enum Error {
 
     #[error("'{0}' is not installed")]
     NotInstalled(String),
+
+    #[error("{}: {message}", path.display())]
+    Shortcut { path: PathBuf, message: String },
 }

@@ -10,6 +10,8 @@
 //! ```
 //!
 //! `args` is optional and goes before the arguments the shim was called with.
+//! `dir`, also optional, is the working directory of the target; without it
+//! the target inherits the shim's.
 
 #[cfg(windows)]
 mod launch;
@@ -28,12 +30,14 @@ pub enum Variant {
 pub struct ShimFile {
     pub path: String,
     pub args: Option<String>,
+    pub dir: Option<String>,
 }
 
 impl ShimFile {
     pub fn parse(text: &str) -> Result<ShimFile, String> {
         let mut path = None;
         let mut args = None;
+        let mut dir = None;
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -42,21 +46,25 @@ impl ShimFile {
             let Some((key, value)) = line.split_once('=') else {
                 return Err(format!("invalid line: {line}"));
             };
-            let value = value.trim().to_owned();
+            let value = Some(value.trim().to_owned()).filter(|v| !v.is_empty());
             match key.trim() {
-                "path" => path = Some(value),
-                "args" => args = Some(value).filter(|v| !v.is_empty()),
+                "path" => path = value,
+                "args" => args = value,
+                "dir" => dir = value,
                 key => return Err(format!("unknown key: {key}")),
             }
         }
         let path = path.ok_or("missing path")?;
-        Ok(ShimFile { path, args })
+        Ok(ShimFile { path, args, dir })
     }
 
     pub fn render(&self) -> String {
         let mut text = format!("path = {}\n", self.path);
         if let Some(args) = &self.args {
             text.push_str(&format!("args = {args}\n"));
+        }
+        if let Some(dir) = &self.dir {
+            text.push_str(&format!("dir = {dir}\n"));
         }
         text
     }
@@ -126,9 +134,10 @@ mod tests {
 
     #[test]
     fn parse_and_render() {
-        let shim = ShimFile::parse("path = C:\\a b\\x.exe\r\nargs = -c \"d e\"\n").unwrap();
+        let shim = ShimFile::parse("path = C:\\a b\\x.exe\r\nargs = -c \"d e\"\ndir = C:\\a b\n").unwrap();
         assert_eq!(shim.path, "C:\\a b\\x.exe");
         assert_eq!(shim.args.as_deref(), Some("-c \"d e\""));
+        assert_eq!(shim.dir.as_deref(), Some("C:\\a b"));
         assert_eq!(ShimFile::parse(&shim.render()).unwrap(), shim);
     }
 
@@ -153,11 +162,13 @@ mod tests {
         let shim = ShimFile {
             path: "C:\\x.exe".into(),
             args: Some("--a".into()),
+            dir: None,
         };
         assert_eq!(shim.command_line(&wide("b")), wide("\"C:\\x.exe\" --a b"));
         let bare = ShimFile {
             path: "x".into(),
             args: None,
+            dir: None,
         };
         assert_eq!(bare.command_line(&[]), wide("\"x\""));
     }

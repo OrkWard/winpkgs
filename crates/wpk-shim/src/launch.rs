@@ -48,6 +48,8 @@ pub fn run(variant: Variant) -> Result<i32, String> {
 
     let mut line = shim.command_line(rest);
     line.push(0);
+    let dir: Option<Vec<u16>> = shim.dir.as_deref().map(|d| wide(OsStr::new(d)));
+    let dir_ptr = dir.as_ref().map_or(null(), |d| d.as_ptr());
     let flags = match variant {
         Variant::Console => CREATE_SUSPENDED,
         Variant::Gui => 0,
@@ -62,7 +64,7 @@ pub fn run(variant: Variant) -> Result<i32, String> {
             1,
             flags,
             null(),
-            null(),
+            dir_ptr,
             &si,
             &mut pi,
         )
@@ -163,6 +165,7 @@ fn wait(process: HANDLE) -> i32 {
 fn run_elevated(variant: Variant, shim: &ShimFile, rest: &[u16]) -> Result<i32, String> {
     let verb = wide(OsStr::new("runas"));
     let file = wide(OsStr::new(&shim.path));
+    let dir = shim.dir.as_deref().map(|d| wide(OsStr::new(d)));
     let mut params: Vec<u16> = shim.args.as_deref().unwrap_or("").encode_utf16().collect();
     if !rest.is_empty() {
         if !params.is_empty() {
@@ -178,6 +181,7 @@ fn run_elevated(variant: Variant, shim: &ShimFile, rest: &[u16]) -> Result<i32, 
     info.lpVerb = verb.as_ptr();
     info.lpFile = file.as_ptr();
     info.lpParameters = params.as_ptr();
+    info.lpDirectory = dir.as_ref().map_or(null(), |d| d.as_ptr());
     info.nShow = SW_SHOWNORMAL;
     if unsafe { ShellExecuteExW(&mut info) } == 0 {
         return Err(format!("cannot start {}: {}", shim.path, io::Error::last_os_error()));

@@ -30,20 +30,17 @@ impl ShimExes {
 /// Suffix of shim exes moved aside because they were running; GC deletes them.
 pub const RETIRED_SUFFIX: &str = ".retired";
 
-/// Create or update `dir/<name>.exe` and `dir/<name>.shim` to run `target`.
-pub fn write(dir: &Path, name: &str, target: &Path, args: Option<&str>, exes: &ShimExes) -> Result<()> {
+/// Create or update `dir/<name>.exe` and `dir/<name>.shim` to run
+/// `shim.path`.
+pub fn write(dir: &Path, name: &str, shim: &ShimFile, exes: &ShimExes) -> Result<()> {
     crate::fs::create_dir_all(dir)?;
-    let source = if is_gui(target) { &exes.gui } else { &exes.console };
+    let source = if is_gui(Path::new(&shim.path)) { &exes.gui } else { &exes.console };
     let exe = dir.join(format!("{name}.exe"));
     let wanted = crate::fs::read(source)?;
     if std::fs::read(&exe).ok().as_deref() != Some(&wanted[..]) {
         retire(&exe)?;
         std::fs::write(&exe, &wanted).map_err(io_error(&exe))?;
     }
-    let shim = ShimFile {
-        path: target.display().to_string(),
-        args: args.map(str::to_owned),
-    };
     crate::fs::write_atomic(&dir.join(format!("{name}.shim")), shim.render().as_bytes())
 }
 
@@ -126,11 +123,14 @@ mod tests {
         let exes = ShimExes { console, gui };
         let bin = dir.join("bin");
         let notepad = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");
-        write(&bin, "np", &notepad, Some("-x"), &exes).unwrap();
+        let shim = ShimFile {
+            path: notepad.display().to_string(),
+            args: Some("-x".into()),
+            dir: None,
+        };
+        write(&bin, "np", &shim, &exes).unwrap();
         assert_eq!(std::fs::read_to_string(bin.join("np.exe")).unwrap(), "gui");
-        let shim = read(&bin, "np").unwrap().unwrap();
-        assert_eq!(shim.path, notepad.display().to_string());
-        assert_eq!(shim.args.as_deref(), Some("-x"));
+        assert_eq!(read(&bin, "np").unwrap().unwrap(), shim);
         remove(&bin, "np").unwrap();
         assert!(!bin.join("np.exe").exists());
         assert!(read(&bin, "np").unwrap().is_none());
