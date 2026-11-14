@@ -7,6 +7,9 @@ use crate::{Error, Result};
 /// Root of all wpk files, overriding `~/wpk`.
 pub const ROOT_ENV: &str = "WPK_ROOT";
 
+/// Folder for shortcuts, overriding the Start menu's `wpk` folder.
+pub const START_MENU_ENV: &str = "WPK_START_MENU";
+
 /// Name of the package wpk installs itself as; its dir also holds wpk's state.
 pub const SELF_PACKAGE: &str = "wpk";
 
@@ -15,18 +18,23 @@ pub const SELF_PACKAGE: &str = "wpk";
 pub struct Layout {
     root: PathBuf,
     cache: PathBuf,
+    start_menu: PathBuf,
 }
 
 impl Layout {
+    /// A layout whose shortcuts go to `<root>/start-menu`, for tests and
+    /// tools that must not touch the user's Start menu.
     pub fn new(root: impl Into<PathBuf>, cache: impl Into<PathBuf>) -> Layout {
+        let root = root.into();
         Layout {
-            root: root.into(),
+            start_menu: root.join("start-menu"),
+            root,
             cache: cache.into(),
         }
     }
 
     /// Root from `WPK_ROOT` or `~/wpk`; cache from `XDG_CACHE_HOME/wpk` or
-    /// `~/.cache/wpk`.
+    /// `~/.cache/wpk`; shortcuts in the Start menu's `wpk` folder.
     pub fn from_env() -> Result<Layout> {
         let home = || std::env::home_dir().ok_or(Error::NoHome);
         let root = match non_empty_env(ROOT_ENV) {
@@ -37,7 +45,13 @@ impl Layout {
             Some(cache) => cache.join("wpk"),
             None => home()?.join(".cache").join("wpk"),
         };
-        Ok(Layout::new(root, cache))
+        let mut layout = Layout::new(root, cache);
+        if let Some(dir) = non_empty_env(START_MENU_ENV) {
+            layout.start_menu = dir;
+        } else if let Some(appdata) = non_empty_env("APPDATA") {
+            layout.start_menu = appdata.join(r"Microsoft\Windows\Start Menu\Programs\wpk");
+        }
+        Ok(layout)
     }
 
     pub fn root(&self) -> &Path {
@@ -46,6 +60,11 @@ impl Layout {
 
     pub fn cache(&self) -> &Path {
         &self.cache
+    }
+
+    /// The Start menu folder holding wpk's shortcuts.
+    pub fn start_menu(&self) -> &Path {
+        &self.start_menu
     }
 
     /// The directory users add to PATH.
@@ -65,8 +84,18 @@ impl Layout {
         self.opt().join(name)
     }
 
+    /// Install dir of one version; characters Windows forbids become `_`.
     pub fn version(&self, name: &str, version: &str) -> PathBuf {
-        self.package(name).join(version)
+        let safe: String = version
+            .chars()
+            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .collect();
+        self.package(name).join(safe)
+    }
+
+    /// wpk's records inside a version dir.
+    pub fn records(&self, name: &str, version: &str) -> PathBuf {
+        self.version(name, version).join(".wpk")
     }
 
     /// Text file holding the active version of a package.

@@ -9,8 +9,11 @@ pub mod config;
 pub mod download;
 pub mod error;
 pub mod fs;
+pub mod installed;
 pub mod layout;
 pub mod manifest;
+pub mod persist;
+pub mod shim;
 mod wpk;
 
 pub use config::Config;

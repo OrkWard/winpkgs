@@ -46,4 +46,10 @@ pub enum Error {
 
     #[error("extracting needs the '{0}' package; install it with `wpk install {0}`")]
     MissingTool(&'static str),
+
+    #[error("{}: {message}", path.display())]
+    Corrupt { path: PathBuf, message: String },
+
+    #[error("'{0}' is not installed")]
+    NotInstalled(String),
 }
