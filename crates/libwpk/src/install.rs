@@ -178,7 +178,10 @@ impl Wpk {
                 reporter.event(Event::Notes { name: &c.name, lines: &c.manifest.notes.0 });
             }
             if !job.plan.env_set.is_empty() {
-                reporter.event(Event::EnvSet { name: &c.name, vars: &job.plan.env_set });
+                let vars = Vars::of(&self.layout, &c.name, &c.manifest.version);
+                let expanded: BTreeMap<String, String> =
+                    job.plan.env_set.iter().map(|(k, v)| (k.clone(), vars.expand(v))).collect();
+                reporter.event(Event::EnvSet { name: &c.name, vars: &expanded });
             }
             let suggested: Vec<&str> = c
                 .manifest
@@ -344,12 +347,7 @@ impl Wpk {
 
         // From here on the new version is complete; failures leave it in
         // place without switching `current`.
-        let vars = Vars {
-            dir: &dir,
-            persist: &layout.persist(name),
-            version,
-            app: name,
-        };
+        let vars = Vars::of(layout, name, version);
         let bin_dir = layout.bin();
         let mut receipt = Receipt {
             version: version.to_owned(),
@@ -501,15 +499,24 @@ fn launcher_name(name: &str) -> String {
         .collect()
 }
 
-/// Scoop's variables in `bin` and shortcut arguments.
+/// Scoop's variables in `bin` and shortcut arguments and `env_set`.
 struct Vars<'a> {
-    dir: &'a Path,
-    persist: &'a Path,
+    dir: PathBuf,
+    persist: PathBuf,
     version: &'a str,
     app: &'a str,
 }
 
-impl Vars<'_> {
+impl<'a> Vars<'a> {
+    fn of(layout: &Layout, app: &'a str, version: &'a str) -> Vars<'a> {
+        Vars {
+            dir: layout.version(app, version),
+            persist: layout.persist(app),
+            version,
+            app,
+        }
+    }
+
     fn expand(&self, s: &str) -> String {
         let dir = self.dir.display().to_string();
         s.replace("$original_dir", &dir)

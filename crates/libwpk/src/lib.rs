@@ -10,6 +10,7 @@ pub mod download;
 pub mod error;
 pub mod fs;
 pub mod gc;
+mod init;
 pub mod install;
 pub mod installed;
 pub mod layout;
