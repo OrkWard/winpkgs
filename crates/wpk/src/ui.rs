@@ -100,6 +100,12 @@ impl Reporter for Ui {
                 self.print(&format!("{name} {version} installed"))
             }
             Event::Uninstalled { name } => self.print(&format!("{name} uninstalled")),
+            Event::Relinked { name } => self.print(&format!("{name} relinked")),
+            Event::Failed { name, error } => {
+                let mut p = self.progress.lock().unwrap();
+                clear(&mut p);
+                eprintln!("error: {name} failed: {error}");
+            }
             Event::Notes { name, lines } => {
                 let mut text = format!("notes from {name}:");
                 for line in lines {

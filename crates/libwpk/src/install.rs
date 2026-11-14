@@ -42,6 +42,15 @@ pub enum Event<'a> {
     Uninstalled {
         name: &'a str,
     },
+    /// Shims, launchers and shortcuts rewritten by a relink.
+    Relinked {
+        name: &'a str,
+    },
+    /// This package was left as it was; the others go on.
+    Failed {
+        name: &'a str,
+        error: &'a Error,
+    },
     /// The manifest's `notes`.
     Notes {
         name: &'a str,
@@ -228,11 +237,34 @@ impl Wpk {
             });
         }
 
-        let files = self.download_all(&jobs, reporter)?;
-        for (job, files) in jobs.iter().zip(files) {
-            let tools = self.tools();
-            self.deploy(job, &files, &tools, &self.shims)?;
+        let downloads = self.download_all(&jobs, reporter);
+        let mut failed: Vec<String> = Vec::new();
+        for (job, files) in jobs.iter().zip(downloads) {
             let c = &job.candidate;
+            let failed_dep = c
+                .manifest
+                .depends
+                .0
+                .iter()
+                .find(|d| failed.contains(&split_query(d).1.to_ascii_lowercase()));
+            let result = match failed_dep {
+                Some(dep) => Err(Error::Install {
+                    package: c.name.clone(),
+                    message: format!("dependency '{dep}' failed"),
+                }),
+                None => files.and_then(|files| {
+                    let tools = self.tools();
+                    self.deploy(job, &files, &tools, &self.shims)
+                }),
+            };
+            if let Err(error) = result {
+                reporter.event(Event::Failed {
+                    name: &c.name,
+                    error: &error,
+                });
+                failed.push(c.name.clone());
+                continue;
+            }
             reporter.event(Event::Installed {
                 name: &c.name,
                 version: &c.manifest.version,
@@ -279,6 +311,9 @@ impl Wpk {
         }
         if let Err(e) = gc::run_if_due(self) {
             reporter.event(Event::Warning(format!("gc: {e}")));
+        }
+        if !failed.is_empty() {
+            return Err(Error::Failed(failed));
         }
         Ok(())
     }
@@ -331,7 +366,8 @@ impl Wpk {
         Ok(())
     }
 
-    fn download_all(&self, jobs: &[Job], reporter: &dyn Reporter) -> Result<Vec<Vec<PathBuf>>> {
+    /// Download every job's files; a job fails with its first failed file.
+    fn download_all(&self, jobs: &[Job], reporter: &dyn Reporter) -> Vec<Result<Vec<PathBuf>>> {
         let results: Mutex<HashMap<(usize, usize), Result<PathBuf>>> = Mutex::new(HashMap::new());
         std::thread::scope(|scope| {
             for (j, job) in jobs.iter().enumerate() {
@@ -370,7 +406,7 @@ impl Wpk {
             .map(|(j, job)| {
                 (0..job.plan.downloads.len())
                     .map(|d| results.remove(&(j, d)).expect("every download ran"))
-                    .collect()
+                    .collect::<Result<_>>()
             })
             .collect()
     }
@@ -559,6 +595,32 @@ impl Wpk {
                 crate::fs::remove_dir_all(&self.layout.persist(&name))?;
             }
             reporter.event(Event::Uninstalled { name: &name });
+        }
+        Ok(())
+    }
+
+    /// Rewrite the shims, launchers and shortcuts of every installed
+    /// package, e.g. after the shim exes changed.
+    pub fn relink(&self, reporter: &dyn Reporter) -> Result<()> {
+        let _lock = self.lock()?;
+        let mut failed = Vec::new();
+        for package in installed::list(&self.layout, |name, e| {
+            reporter.event(Event::Warning(format!("{name}: {e}")));
+        })? {
+            let name = package.name.as_str();
+            match relink_previous(&self.layout, name, &package.receipt, &self.shims) {
+                Ok(()) => reporter.event(Event::Relinked { name }),
+                Err(error) => {
+                    reporter.event(Event::Failed {
+                        name,
+                        error: &error,
+                    });
+                    failed.push(package.name.clone());
+                }
+            }
+        }
+        if !failed.is_empty() {
+            return Err(Error::Failed(failed));
         }
         Ok(())
     }

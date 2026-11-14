@@ -91,7 +91,7 @@ Windows 没有 exec，shim 只能创建子进程。console 变体的行为：
 
 gui 变体启动子进程后直接退出。
 
-升级软件包只改写 `.shim`：先写临时文件，再改名覆盖。shim 本身出新版本时，如果旧的 exe 正在运行，先把它改名移开，再放入新文件，旧文件留给 GC 删除。
+升级软件包只改写 `.shim`：先写临时文件，再改名覆盖。shim 本身出新版本时，如果旧的 exe 正在运行，先把它改名移开，再放入新文件，旧文件留给 GC 删除。已装包的 shim exe 在该包重装或升级时才换成新版，`wpk relink` 一次性刷新全部。
 
 ## 快捷方式
 
@@ -152,6 +152,8 @@ gui 变体启动子进程后直接退出。
 9. 如果距上次 GC 超过 `gc_interval_days`（默认 7 天），执行 GC。
 
 第 5 步之前失败，删除新版本目录；之后失败，新版本目录保留但 `current` 不变。旧版本始终可用。
+
+一个包下载或部署失败时只跳过这个包和依赖它的包，其余照常完成，命令最后报告失败的包并以错误退出。
 
 ## GC
 
@@ -228,6 +230,7 @@ url = "https://github.com/ScoopInstaller/Extras"
 | `cache list/rm` | 管理缓存 |
 | `gc` | 手动 GC |
 | `which <name>` | 显示某个 shim 的目标 |
+| `relink` | 按各包当前版本保存的 manifest 重写全部 shim、launcher、图标和快捷方式 |
 
 wpk 自身作为 `wpk` bucket 中的普通包升级，流程与其他包相同。
 

@@ -61,6 +61,8 @@ enum Command {
     Gc,
     /// Show the target of a command
     Which { name: String },
+    /// Rewrite shims and shortcuts of all packages, e.g. after a shim update
+    Relink,
 }
 
 #[derive(Subcommand)]
@@ -116,6 +118,11 @@ fn main() -> anyhow::Result<()> {
         Command::Cache(command) => cache(&layout, command),
         Command::Gc => gc(&layout),
         Command::Which { name } => which(&layout, &name),
+        Command::Relink => {
+            let result = Wpk::open(layout)?.relink(&ui);
+            ui.finish();
+            Ok(result?)
+        }
     }
 }
 

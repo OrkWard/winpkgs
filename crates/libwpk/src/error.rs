@@ -86,4 +86,7 @@ pub enum Error {
 
     #[error("wpk cannot uninstall itself")]
     UninstallSelf,
+
+    #[error("failed: {}", .0.join(", "))]
+    Failed(Vec<String>),
 }

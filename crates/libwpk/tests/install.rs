@@ -296,6 +296,68 @@ fn persist_copy_follows_upgrades_and_uninstall() {
 }
 
 #[test]
+fn failed_download_skips_only_its_dependents() {
+    let f = Fixture::new("partial");
+    let layout = &f.wpk.layout;
+    let log = Mutex::new(Vec::new());
+    let reporter = |e: Event<'_>| log.lock().unwrap().push(format!("{e:?}"));
+    let missing = f.root.join("missing.zip").display().to_string();
+    let missing = format!("file:///{}", missing.replace('\\', "/"));
+    std::fs::write(
+        f.upstream.join("bucket/broken.json"),
+        serde_json::json!({"version": "1", "url": missing}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        f.upstream.join("bucket/needy.json"),
+        serde_json::json!({"version": "1", "url": missing, "depends": "broken"}).to_string(),
+    )
+    .unwrap();
+    f.publish("1");
+
+    let err = f
+        .wpk
+        .install(&["needy".into(), "foo".into()], &reporter)
+        .unwrap_err();
+    assert!(
+        matches!(&err, libwpk::Error::Failed(names) if names == &["broken", "needy"]),
+        "{err}"
+    );
+    assert_eq!(
+        installed::current(layout, "foo").unwrap().as_deref(),
+        Some("1")
+    );
+    assert!(installed::current(layout, "broken").unwrap().is_none());
+    assert!(installed::current(layout, "needy").unwrap().is_none());
+    let logged = log.lock().unwrap().join("\n");
+    assert!(logged.contains("dependency 'broken' failed"), "{logged}");
+}
+
+#[test]
+fn relink_refreshes_shims_and_shortcuts() {
+    let f = Fixture::new("relink");
+    let layout = &f.wpk.layout;
+    let reporter = |_: Event<'_>| {};
+    f.publish("1");
+    f.wpk.install(&["foo".into()], &reporter).unwrap();
+
+    std::fs::write(&f.wpk.shims.console, "console shim 2").unwrap();
+    std::fs::remove_file(layout.start_menu().join("Foo App.lnk")).unwrap();
+    f.wpk.relink(&reporter).unwrap();
+    for exe in [
+        layout.bin().join("foo.exe"),
+        layout.bin().join("foo2.exe"),
+        layout.launchers("foo").join("Foo App.exe"),
+    ] {
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "console shim 2");
+    }
+    assert!(layout.start_menu().join("Foo App.lnk").exists());
+    let shim = std::fs::read_to_string(layout.bin().join("foo.shim")).unwrap();
+    let exe = layout.version("foo", "1").join("foo.exe");
+    assert!(shim.contains(&exe.display().to_string()));
+}
+
+#[test]
 fn rejects_unsupported_and_conflicts() {
     let f = Fixture::new("reject");
     let reporter = |_: Event<'_>| {};
