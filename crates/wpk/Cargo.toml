@@ -1,0 +1,12 @@
+[package]
+name = "wpk"
+description = "A portable package manager for Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libwpk.workspace = true
+anyhow.workspace = true
+clap.workspace = true

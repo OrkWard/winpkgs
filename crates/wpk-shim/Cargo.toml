@@ -1,0 +1,15 @@
+[package]
+name = "wpk-shim"
+description = "Launcher that runs the target named in the .shim file next to it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "wpk-shim"
+path = "src/bin/console.rs"
+
+[[bin]]
+name = "wpk-shimw"
+path = "src/bin/gui.rs"
