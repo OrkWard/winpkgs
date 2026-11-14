@@ -65,6 +65,7 @@ if (not $publish) {
     &bin=wpk.exe
   ]
   var bucket = ~/Repos/wpk-bucket/bucket/wpk.json
-  put $manifest | to-json > $bucket
+  # Indented like Scoop's manifests; jq keeps the key order.
+  put $manifest | to-json | jq --indent 4 '{version, description, homepage, license, url, hash, bin}' > $bucket
   echo 'published; commit and push '$bucket
 }
