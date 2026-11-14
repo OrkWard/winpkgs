@@ -1,4 +1,5 @@
-//! `persist`: data kept in `var/<pkg>` and linked into each version.
+//! `persist`: data kept in `var/<pkg>` and linked into each version, and
+//! `persist_copy`: data copied from version to version.
 
 use std::path::Path;
 
@@ -45,6 +46,59 @@ pub fn link(dir: &Path, var_dir: &Path, entries: &[Persist]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Copy each `persist_copy` path into the new version dir `dir`, from the
+/// installed version dir `from` when there is one, else from `var_dir`,
+/// where [`copy_back`] saves it on uninstall. A path found in neither keeps
+/// whatever the package ships.
+pub fn copy_forward(dir: &Path, from: Option<&Path>, var_dir: &Path, entries: &[String]) -> Result<()> {
+    for entry in entries {
+        let source = from
+            .map(|from| from.join(entry))
+            .filter(|p| p.exists())
+            .or_else(|| Some(var_dir.join(entry)).filter(|p| p.exists()));
+        if let Some(source) = source {
+            replace_with_copy(&source, &dir.join(entry))?;
+        }
+    }
+    Ok(())
+}
+
+/// Save each `persist_copy` path of the version dir `dir` to `var_dir`.
+pub fn copy_back(dir: &Path, var_dir: &Path, entries: &[String]) -> Result<()> {
+    for entry in entries {
+        let source = dir.join(entry);
+        if source.exists() {
+            replace_with_copy(&source, &var_dir.join(entry))?;
+        }
+    }
+    Ok(())
+}
+
+fn replace_with_copy(source: &Path, dest: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(dest) {
+        Ok(meta) if meta.is_dir() => crate::fs::remove_dir_all(dest)?,
+        Ok(_) => crate::fs::remove_file(dest)?,
+        Err(_) => {}
+    }
+    if let Some(parent) = dest.parent() {
+        crate::fs::create_dir_all(parent)?;
+    }
+    copy_recursive(source, dest)
+}
+
+fn copy_recursive(source: &Path, dest: &Path) -> Result<()> {
+    if source.is_dir() {
+        crate::fs::create_dir_all(dest)?;
+        for entry in std::fs::read_dir(source).map_err(crate::fs::io_error(source))? {
+            let entry = entry.map_err(crate::fs::io_error(source))?;
+            copy_recursive(&entry.path(), &dest.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(source, dest).map(|_| ()).map_err(crate::fs::io_error(source))
+    }
 }
 
 #[cfg(test)]
@@ -113,5 +167,32 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         link(&dir, &var, &entries).unwrap();
         assert!(dir.join("data/new").exists());
+    }
+
+    #[test]
+    fn copy_forward_prefers_installed_version_then_var() {
+        let root = crate::testutil::TempDir::new("persist-copy");
+        let (v1, v2, var) = (root.join("1"), root.join("2"), root.join("var"));
+        std::fs::create_dir_all(v1.join("d")).unwrap();
+        std::fs::create_dir_all(&v2).unwrap();
+        std::fs::write(v1.join("a.ini"), "user").unwrap();
+        std::fs::write(v1.join("d/x"), "x").unwrap();
+        std::fs::write(v2.join("a.ini"), "shipped").unwrap();
+        std::fs::write(v2.join("b.ini"), "shipped").unwrap();
+        let entries = ["a.ini".to_owned(), "b.ini".to_owned(), "d".to_owned(), "none".to_owned()];
+
+        copy_forward(&v2, Some(&v1), &var, &entries).unwrap();
+        assert_eq!(std::fs::read_to_string(v2.join("a.ini")).unwrap(), "user");
+        assert_eq!(std::fs::read_to_string(v2.join("b.ini")).unwrap(), "shipped");
+        assert_eq!(std::fs::read_to_string(v2.join("d/x")).unwrap(), "x");
+        assert!(!v2.join("none").exists());
+
+        // Uninstall saves to var, a later install restores from there.
+        copy_back(&v2, &var, &entries).unwrap();
+        let v3 = root.join("3");
+        std::fs::create_dir_all(&v3).unwrap();
+        copy_forward(&v3, None, &var, &entries).unwrap();
+        assert_eq!(std::fs::read_to_string(v3.join("a.ini")).unwrap(), "user");
+        assert_eq!(std::fs::read_to_string(v3.join("d/x")).unwrap(), "x");
     }
 }

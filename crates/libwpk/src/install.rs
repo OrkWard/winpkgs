@@ -143,6 +143,17 @@ impl Wpk {
             {
                 continue;
             }
+            // A running old version would save its persist_copy files after
+            // they were copied, into a dir no longer current.
+            let copies = candidate.plan().is_ok_and(|plan| !plan.persist_copy.is_empty());
+            if copies
+                && let Some(busy) =
+                    gc::find_busy_image(&self.layout.version(name, &target.receipt.version))
+            {
+                let reason = format!("{} is running; close it and upgrade again", busy.display());
+                reporter.event(Event::Skipped { name, reason: &reason });
+                continue;
+            }
             self.add_job(
                 candidate,
                 target.receipt.explicit,
@@ -428,6 +439,16 @@ impl Wpk {
 
         let prepared = (|| {
             persist::link(&dir, &layout.persist(name), &job.plan.persist)?;
+            let installed_dir = job
+                .previous
+                .as_ref()
+                .map(|p| layout.version(name, &p.receipt.version));
+            persist::copy_forward(
+                &dir,
+                installed_dir.as_deref(),
+                &layout.persist(name),
+                &job.plan.persist_copy,
+            )?;
             for bin in &job.plan.bins {
                 if let Some(source) = &bin.link_of {
                     let link = dir.join(&bin.target);
@@ -513,6 +534,11 @@ impl Wpk {
             let Some(installed) = installed::get(&self.layout, &name)? else {
                 return Err(Error::NotInstalled(name));
             };
+            let version_dir = self.layout.version(&name, &installed.receipt.version);
+            let copies = saved_plan(&self.layout, &name, &installed.receipt)
+                .map(|plan| plan.persist_copy)
+                .unwrap_or_default();
+            persist::copy_back(&version_dir, &self.layout.persist(&name), &copies)?;
             let empty = Receipt {
                 bins: Vec::new(),
                 launchers: Vec::new(),
@@ -627,20 +653,7 @@ fn link_version(
 
 /// Link the previously installed version again from its saved manifest.
 fn relink_previous(layout: &Layout, name: &str, previous: &Receipt, exes: &ShimExes) -> Result<()> {
-    let path = layout
-        .records(name, &previous.version)
-        .join("manifest.json");
-    let manifest =
-        crate::Manifest::parse(&crate::fs::read(&path)?).map_err(|e| Error::Corrupt {
-            path: path.clone(),
-            message: e.to_string(),
-        })?;
-    let plan = manifest
-        .plan(previous.arch)
-        .map_err(|reason| Error::Unsupported {
-            package: name.to_owned(),
-            reason,
-        })?;
+    let plan = saved_plan(layout, name, previous)?;
     let mut links = Receipt {
         bins: Vec::new(),
         launchers: Vec::new(),
@@ -648,6 +661,24 @@ fn relink_previous(layout: &Layout, name: &str, previous: &Receipt, exes: &ShimE
         ..previous.clone()
     };
     link_version(layout, name, &previous.version, &plan, exes, &mut links)
+}
+
+/// The plan of an installed version, from the manifest saved with it.
+fn saved_plan(layout: &Layout, name: &str, receipt: &Receipt) -> Result<Plan> {
+    let path = layout
+        .records(name, &receipt.version)
+        .join("manifest.json");
+    let manifest =
+        crate::Manifest::parse(&crate::fs::read(&path)?).map_err(|e| Error::Corrupt {
+            path: path.clone(),
+            message: e.to_string(),
+        })?;
+    manifest
+        .plan(receipt.arch)
+        .map_err(|reason| Error::Unsupported {
+            package: name.to_owned(),
+            reason,
+        })
 }
 
 /// Remove what `old` created and `new` does not.

@@ -247,6 +247,52 @@ fn multicall_bins_get_hard_links() {
 }
 
 #[test]
+fn persist_copy_follows_upgrades_and_uninstall() {
+    let f = Fixture::new("persist-copy");
+    let layout = &f.wpk.layout;
+    let publish = |v: &str| {
+        let zip_path = f.root.join(format!("app-{v}.zip"));
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("app.exe", opts).unwrap();
+        zip.write_all(v.as_bytes()).unwrap();
+        zip.start_file("app.ini", opts).unwrap();
+        zip.write_all(b"shipped").unwrap();
+        zip.finish().unwrap();
+        let url = format!("file:///{}", zip_path.display().to_string().replace('\\', "/"));
+        let manifest = serde_json::json!({
+            "version": v, "url": url, "bin": "app.exe", "persist_copy": ["app.ini", "app.db"]
+        });
+        std::fs::write(f.upstream.join("bucket/app.json"), manifest.to_string()).unwrap();
+        git(&f.upstream, &["add", "."]);
+        git(&f.upstream, &["commit", "-q", "-m", v]);
+        bucket::update(layout, "t", None).unwrap();
+    };
+    let reporter = |_: Event<'_>| {};
+
+    publish("1");
+    f.wpk.install(&["app".into()], &reporter).unwrap();
+    let v1 = layout.version("app", "1");
+    assert_eq!(std::fs::read_to_string(v1.join("app.ini")).unwrap(), "shipped");
+    assert!(!v1.join("app.db").exists());
+    // The app replaces its files when saving.
+    std::fs::remove_file(v1.join("app.ini")).unwrap();
+    std::fs::write(v1.join("app.ini"), "user").unwrap();
+    std::fs::write(v1.join("app.db"), "db").unwrap();
+
+    publish("2");
+    f.wpk.upgrade(&[], &reporter).unwrap();
+    let v2 = layout.version("app", "2");
+    assert_eq!(std::fs::read_to_string(v2.join("app.ini")).unwrap(), "user");
+    assert_eq!(std::fs::read_to_string(v2.join("app.db")).unwrap(), "db");
+
+    f.wpk.uninstall(&["app".into()], false, &reporter).unwrap();
+    assert_eq!(std::fs::read_to_string(layout.persist("app").join("app.ini")).unwrap(), "user");
+    f.wpk.install(&["app".into()], &reporter).unwrap();
+    assert_eq!(std::fs::read_to_string(v2.join("app.ini")).unwrap(), "user");
+}
+
+#[test]
 fn rejects_unsupported_and_conflicts() {
     let f = Fixture::new("reject");
     let reporter = |_: Event<'_>| {};

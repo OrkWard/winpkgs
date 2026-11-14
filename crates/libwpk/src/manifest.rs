@@ -44,6 +44,11 @@ pub struct Manifest {
     pub innosetup: bool,
     #[serde(default)]
     pub persist: OneOrMany<OneOrMany<String>>,
+    /// wpk extension: files or directories copied from the installed
+    /// version into the new one, for apps that save by replacing files,
+    /// which breaks the hard links `persist` uses.
+    #[serde(default)]
+    pub persist_copy: OneOrMany<String>,
     /// wpk extension: AppUserModelID per shortcut name.
     #[serde(default)]
     pub shortcut_aumid: BTreeMap<String, String>,
@@ -267,6 +272,9 @@ pub struct Plan {
     pub bins: Vec<Bin>,
     pub shortcuts: Vec<Shortcut>,
     pub persist: Vec<Persist>,
+    /// Relative to the install dir; see [`Manifest::persist_copy`].
+    #[serde(default)]
+    pub persist_copy: Vec<String>,
     pub env_set: BTreeMap<String, String>,
 }
 
@@ -522,6 +530,7 @@ impl Manifest {
             bins,
             shortcuts,
             persist,
+            persist_copy: self.persist_copy.0.iter().map(|p| trim_slashes(p)).collect(),
             env_set: pick(|f| f.env_set.is_some())
                 .env_set
                 .clone()
@@ -577,7 +586,8 @@ fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
             plan.persist
                 .iter()
                 .flat_map(|p| [("persist", &p.source), ("persist", &p.target)]),
-        );
+        )
+        .chain(plan.persist_copy.iter().map(|p| ("persist_copy", p)));
     for (what, path) in paths {
         if !is_relative_inside(path) {
             return Err(bad(what, path));
