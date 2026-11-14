@@ -145,6 +145,17 @@ fn non_empty_env(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Whether `s` can be a single path component: a package name or version.
+pub fn is_safe_name(s: &str) -> bool {
+    let s = s.trim();
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && !s.starts_with(".wpk")
+        && !s.ends_with(".tmp")
+        && !s.contains(['/', '\\'])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

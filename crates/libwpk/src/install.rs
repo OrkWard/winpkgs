@@ -122,6 +122,13 @@ impl Wpk {
         if !seen.insert(candidate.name.clone()) {
             return Ok(());
         }
+        let version = &candidate.manifest.version;
+        if !crate::layout::is_safe_name(&candidate.name) || !crate::layout::is_safe_name(version) || version == "current" {
+            return Err(Error::Unsupported {
+                package: candidate.ident(),
+                reason: crate::manifest::Unsupported::Malformed(format!("name or version `{version}`")),
+            });
+        }
         let plan = candidate.plan().map_err(|reason| Error::Unsupported {
             package: candidate.ident(),
             reason,

@@ -487,7 +487,7 @@ impl Manifest {
             });
         }
 
-        Ok(Plan {
+        let plan = Plan {
             arch,
             downloads,
             bins,
@@ -497,8 +497,53 @@ impl Manifest {
                 .env_set
                 .clone()
                 .unwrap_or_default(),
-        })
+        };
+        check_paths(&plan)?;
+        Ok(plan)
     }
+}
+
+/// Every path the plan writes or reads stays inside the install dir.
+fn check_paths(plan: &Plan) -> Result<(), Unsupported> {
+    let bad = |what: &str, path: &str| Unsupported::Malformed(format!("{what} path `{path}`"));
+    for d in &plan.downloads {
+        if d.file_name.is_empty() || d.file_name.contains(['/', '\\', ':']) || d.file_name.starts_with('.') {
+            return Err(bad("file", &d.file_name));
+        }
+        for path in [&d.extract_dir, &d.extract_to].into_iter().flatten() {
+            // innounp takes `{app}`-style extract_dir values.
+            if !is_relative_inside(path) && !path.starts_with('{') {
+                return Err(bad("extract", path));
+            }
+        }
+    }
+    let paths = plan
+        .bins
+        .iter()
+        .map(|b| ("bin", &b.target))
+        .chain(plan.shortcuts.iter().map(|s| ("shortcut", &s.target)))
+        .chain(plan.shortcuts.iter().filter_map(|s| s.icon.as_ref().map(|i| ("icon", i))))
+        .chain(plan.shortcuts.iter().map(|s| ("shortcut", &s.name)))
+        .chain(plan.persist.iter().flat_map(|p| [("persist", &p.source), ("persist", &p.target)]));
+    for (what, path) in paths {
+        if !is_relative_inside(path) {
+            return Err(bad(what, path));
+        }
+    }
+    for name in plan.bins.iter().map(|b| &b.name) {
+        if !is_relative_inside(name) || name.contains(['/', '\\']) {
+            return Err(bad("bin name", name));
+        }
+    }
+    Ok(())
+}
+
+/// A relative path without `..`, drive or root.
+fn is_relative_inside(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains(':')
+        && !path.starts_with(['/', '\\'])
+        && path.split(['/', '\\']).all(|part| part != "..")
 }
 
 fn check_runnable(target: &str) -> Result<(), Unsupported> {
@@ -677,6 +722,21 @@ mod tests {
         assert_eq!(plan.downloads[0].extract_dir, None);
         assert_eq!(plan.downloads[1].extract_dir.as_deref(), Some("inner"));
         assert_eq!(plan.downloads[1].extract_to.as_deref(), Some("sub"));
+    }
+
+    #[test]
+    fn rejects_paths_leaving_the_install_dir() {
+        for json in [
+            r#"{"version": "1", "url": "https://h/a.zip#/../a.zip"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "extract_to": "..\\x"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "bin": "C:\\x.exe"}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "persist": [["a", "../b"]]}"#,
+            r#"{"version": "1", "url": "https://h/a.zip", "bin": [["a.exe", "..\\b"]]}"#,
+        ] {
+            assert!(matches!(manifest(json).plan(Arch::X64), Err(Unsupported::Malformed(_))), "{json}");
+        }
+        let ok = manifest(r#"{"version": "1", "url": "https://h/a.exe", "innosetup": true, "extract_dir": "{app}\\x", "bin": ".\\a.exe"}"#);
+        assert!(ok.plan(Arch::X64).is_ok());
     }
 
     #[test]
