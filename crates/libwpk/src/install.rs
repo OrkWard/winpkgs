@@ -588,6 +588,7 @@ fn link_version(
             path: dir.join(&bin.target).display().to_string(),
             args: bin.args.as_deref().map(|a| vars.expand(a)),
             dir: None,
+            arg0: bin.arg0.clone(),
         };
         links.bins.push(bin.name.clone());
         shim::write(&bin_dir, &bin.name, &shim, exes)?;
@@ -598,6 +599,7 @@ fn link_version(
             path: dir.join(&s.target).display().to_string(),
             args: s.args.as_deref().map(|a| vars.expand(a)),
             dir: Some(dir.display().to_string()),
+            arg0: None,
         };
         links.launchers.push(launcher.clone());
         shim::write(&launchers, &launcher, &shim, exes)?;

@@ -11,7 +11,9 @@
 //!
 //! `args` is optional and goes before the arguments the shim was called with.
 //! `dir`, also optional, is the working directory of the target; without it
-//! the target inherits the shim's.
+//! the target inherits the shim's. `arg0`, also optional, replaces the path
+//! as the target's `argv[0]`, for multi-call programs that act on the name
+//! they were started as.
 
 #[cfg(windows)]
 mod launch;
@@ -31,6 +33,7 @@ pub struct ShimFile {
     pub path: String,
     pub args: Option<String>,
     pub dir: Option<String>,
+    pub arg0: Option<String>,
 }
 
 impl ShimFile {
@@ -38,6 +41,7 @@ impl ShimFile {
         let mut path = None;
         let mut args = None;
         let mut dir = None;
+        let mut arg0 = None;
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -51,11 +55,12 @@ impl ShimFile {
                 "path" => path = value,
                 "args" => args = value,
                 "dir" => dir = value,
+                "arg0" => arg0 = value,
                 key => return Err(format!("unknown key: {key}")),
             }
         }
         let path = path.ok_or("missing path")?;
-        Ok(ShimFile { path, args, dir })
+        Ok(ShimFile { path, args, dir, arg0 })
     }
 
     pub fn render(&self) -> String {
@@ -66,13 +71,17 @@ impl ShimFile {
         if let Some(dir) = &self.dir {
             text.push_str(&format!("dir = {dir}\n"));
         }
+        if let Some(arg0) = &self.arg0 {
+            text.push_str(&format!("arg0 = {arg0}\n"));
+        }
         text
     }
 
-    /// Command line for the target: the quoted path, `args`, then `rest`,
-    /// the shim's own arguments as it received them.
+    /// Command line for the target: the quoted `arg0` or path, `args`, then
+    /// `rest`, the shim's own arguments as it received them.
     pub fn command_line(&self, rest: &[u16]) -> Vec<u16> {
-        let mut line: Vec<u16> = format!("\"{}\"", self.path).encode_utf16().collect();
+        let first = self.arg0.as_deref().unwrap_or(&self.path);
+        let mut line: Vec<u16> = format!("\"{first}\"").encode_utf16().collect();
         if let Some(args) = &self.args {
             line.push(b' ' as u16);
             line.extend(args.encode_utf16());
@@ -167,13 +176,16 @@ mod tests {
             path: "C:\\x.exe".into(),
             args: Some("--a".into()),
             dir: None,
+            arg0: None,
         };
         assert_eq!(shim.command_line(&wide("b")), wide("\"C:\\x.exe\" --a b"));
         let bare = ShimFile {
             path: "x".into(),
             args: None,
             dir: None,
+            arg0: Some("cargo".into()),
         };
-        assert_eq!(bare.command_line(&[]), wide("\"x\""));
+        assert_eq!(bare.command_line(&[]), wide("\"cargo\""));
+        assert_eq!(ShimFile::parse(&bare.render()).unwrap(), bare);
     }
 }

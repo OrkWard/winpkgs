@@ -67,6 +67,21 @@ fn batch_arguments_cannot_inject_commands() {
 }
 
 #[test]
+fn arg0_replaces_the_program_name() {
+    // .NET reads argv[0] from the command line, not the image path.
+    let root = std::env::var("SystemRoot").unwrap();
+    let powershell = format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe");
+    let dir = shim_dir("arg0");
+    let shim = make_shim(
+        &dir,
+        "cargo",
+        &format!("path = {powershell}\narg0 = cargo\nargs = -NoProfile -Command [Environment]::GetCommandLineArgs()[0]\n"),
+    );
+    let out = Command::new(&shim).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "cargo");
+}
+
+#[test]
 fn reports_missing_shim_file() {
     let dir = shim_dir("missing");
     let exe = make_shim(&dir, "m", "");

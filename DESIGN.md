@@ -75,6 +75,8 @@ dir = C:\Users\x\wpk\opt\fd\10.5.2
 
 `args` 和 `dir` 可以省略。`args` 放在调用 shim 时的参数前面。`dir` 是子进程的工作目录，只有 launcher 写它，设为版本目录；bin 中的 shim 不写，子进程继承调用者的工作目录。
 
+`arg0` 也可以省略，写了就用它代替目标路径作为子进程的 `argv[0]`。它服务于 rustup 这类多调用程序：同一个 exe 按自己被调用的名字决定充当 cargo、rustc 还是 rustup。manifest 写 wpk 扩展字段 `"multicall": true` 时，每个 bin 的 shim 都把命令名写进 `arg0`。
+
 目标 exe 要求管理员权限时，CreateProcess 失败，shim 改用 ShellExecuteEx 的 `runas` 启动。
 
 目标是 bat 或 cmd 时，cmd.exe 会按自己的规则重新解析命令行，而调用者是按 C 运行时的规则加的引号，原样转交会让参数里的 `&` 等字符变成新命令。所以 shim 先按 C 运行时规则拆分参数，再交给 Rust 标准库按 cmd 的规则重新加引号，无法安全表示的参数直接报错。

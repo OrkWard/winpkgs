@@ -58,6 +58,9 @@ pub fn run(variant: Variant) -> Result<i32, String> {
     line.push(0);
     let dir: Option<Vec<u16>> = shim.dir.as_deref().map(|d| wide(OsStr::new(d)));
     let dir_ptr = dir.as_ref().map_or(null(), |d| d.as_ptr());
+    // With arg0 the command line no longer names the program, so name it here.
+    let program: Option<Vec<u16>> = shim.arg0.as_ref().map(|_| wide(OsStr::new(&shim.path)));
+    let program_ptr = program.as_ref().map_or(null(), |p| p.as_ptr());
     let flags = match variant {
         Variant::Console => CREATE_SUSPENDED,
         Variant::Gui => 0,
@@ -65,7 +68,7 @@ pub fn run(variant: Variant) -> Result<i32, String> {
     let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     let created = unsafe {
         CreateProcessW(
-            null(),
+            program_ptr,
             line.as_mut_ptr(),
             null(),
             null(),
