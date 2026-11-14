@@ -231,6 +231,7 @@ url = "https://github.com/ScoopInstaller/Extras"
 | `gc` | 手动 GC |
 | `which <name>` | 显示某个 shim 的目标 |
 | `relink` | 按各包当前版本保存的 manifest 重写全部 shim、launcher、图标和快捷方式 |
+| `link <target> <shim>` | 在任意位置为任意 exe、bat、cmd 创建 shim，只写 `<shim>.exe` 和 `<shim>.shim`，wpk 不记录；`<shim>` 是已有目录时在其中以目标文件名创建，同名 exe 已存在且不是 shim 时拒绝 |
 
 wpk 自身作为 `wpk` bucket 中的普通包升级，流程与其他包相同。
 

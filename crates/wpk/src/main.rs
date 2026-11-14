@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, bail};
@@ -63,6 +64,13 @@ enum Command {
     Which { name: String },
     /// Rewrite shims and shortcuts of all packages, e.g. after a shim update
     Relink,
+    /// Create a shim SHIM.exe running TARGET; wpk does not track it
+    Link {
+        /// An exe, bat or cmd file
+        target: PathBuf,
+        /// Path of the shim exe, or a directory to create it in
+        shim: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -123,6 +131,7 @@ fn main() -> anyhow::Result<()> {
             ui.finish();
             Ok(result?)
         }
+        Command::Link { target, shim } => link(&target, &shim),
     }
 }
 
@@ -306,4 +315,46 @@ fn which(layout: &Layout, name: &str) -> anyhow::Result<()> {
         }
         None => bail!("'{name}' is not a wpk command"),
     }
+}
+
+fn link(target: &Path, shim: &Path) -> anyhow::Result<()> {
+    let target = std::path::absolute(target)?;
+    if !target.is_file() {
+        bail!("{}: not a file", target.display());
+    }
+    let runnable = target.extension().is_some_and(|e| {
+        ["exe", "bat", "cmd"]
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    });
+    if !runnable {
+        bail!("{}: only exe, bat and cmd can be shimmed", target.display());
+    }
+    let mut shim = std::path::absolute(shim)?;
+    let is_exe = shim
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+    if shim.is_dir() {
+        shim.push(target.file_stem().expect("a file has a name"));
+    } else if is_exe {
+        shim.set_extension("");
+    }
+    let dir = shim.parent().context("the shim needs a directory")?;
+    let name = shim
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("the shim needs a name")?;
+    let exe = dir.join(format!("{name}.exe"));
+    if exe.exists() && libwpk::shim::read(dir, name)?.is_none() {
+        bail!("{} exists and is not a shim", exe.display());
+    }
+    let file = libwpk::shim::ShimFile {
+        path: target.display().to_string(),
+        args: None,
+        dir: None,
+    };
+    let exes = libwpk::shim::ShimExes::beside_current_exe()?;
+    libwpk::shim::write(dir, name, &file, &exes)?;
+    println!("{} -> {}", exe.display(), target.display());
+    Ok(())
 }
