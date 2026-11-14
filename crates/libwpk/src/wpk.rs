@@ -53,7 +53,11 @@ impl Wpk {
         if self.config.buckets.len() == before {
             return Err(Error::BucketNotFound(name.to_owned()));
         }
-        bucket::remove(&self.layout, name)?;
+        // A bucket that never cloned has no directory.
+        match bucket::remove(&self.layout, name) {
+            Ok(()) | Err(Error::BucketNotFound(_)) => {}
+            Err(e) => return Err(e),
+        }
         self.save_config()
     }
 

@@ -25,11 +25,11 @@ impl Layout {
     /// A layout whose shortcuts go to `<root>/start-menu`, for tests and
     /// tools that must not touch the user's Start menu.
     pub fn new(root: impl Into<PathBuf>, cache: impl Into<PathBuf>) -> Layout {
-        let root = root.into();
+        let root = normalize(root.into());
         Layout {
             start_menu: root.join("start-menu"),
             root,
-            cache: cache.into(),
+            cache: normalize(cache.into()),
         }
     }
 
@@ -47,9 +47,9 @@ impl Layout {
         };
         let mut layout = Layout::new(root, cache);
         if let Some(dir) = non_empty_env(START_MENU_ENV) {
-            layout.start_menu = dir;
+            layout.start_menu = normalize(dir);
         } else if let Some(appdata) = non_empty_env("APPDATA") {
-            layout.start_menu = appdata.join(r"Microsoft\Windows\Start Menu\Programs\wpk");
+            layout.start_menu = normalize(appdata.join(r"Microsoft\Windows\Start Menu\Programs\wpk"));
         }
         Ok(layout)
     }
@@ -145,6 +145,17 @@ fn non_empty_env(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// An absolute path with `\` separators only: paths built from variables
+/// like `TEMP` may mix in `/`, which msiexec and others reject.
+fn normalize(path: PathBuf) -> PathBuf {
+    let path = std::path::absolute(&path).unwrap_or(path);
+    if cfg!(windows) {
+        PathBuf::from(path.to_string_lossy().replace('/', "\\"))
+    } else {
+        path
+    }
+}
+
 /// Whether `s` can be a single path component: a package name or version.
 pub fn is_safe_name(s: &str) -> bool {
     let s = s.trim();
@@ -162,10 +173,11 @@ mod tests {
 
     #[test]
     fn state_lives_in_self_package() {
-        let layout = Layout::new("r", "c");
-        assert_eq!(layout.config(), Path::new("r/opt/wpk/config.toml"));
-        assert_eq!(layout.held("fd"), Path::new("r/opt/wpk/held/fd"));
-        assert_eq!(layout.current("fd"), Path::new("r/opt/fd/current"));
-        assert_eq!(layout.persist("fd"), Path::new("r/var/fd"));
+        let layout = Layout::new("C:/r", "C:/c");
+        assert_eq!(layout.config(), Path::new(r"C:\r\opt\wpk\config.toml"));
+        assert_eq!(layout.held("fd"), Path::new(r"C:\r\opt\wpk\held\fd"));
+        assert_eq!(layout.current("fd"), Path::new(r"C:\r\opt\fd\current"));
+        assert_eq!(layout.persist("fd"), Path::new(r"C:\r\var\fd"));
+        assert_eq!(layout.version("fd", "1:2"), Path::new(r"C:\r\opt\fd\1_2"));
     }
 }
