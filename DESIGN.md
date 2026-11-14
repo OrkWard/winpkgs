@@ -239,7 +239,7 @@ wpk 自身作为 `wpk` bucket 中的普通包升级，流程与其他包相同�
 
 `elvish scripts/release.elv` 编译 release 版本并打包到 `target/dist/<ver>/`。加 `--publish` 时上传到 MinIO 并写入 `~/Repos/wpk-bucket/bucket/wpk.json`，提交和推送由人完成。
 
-MinIO 上的位置：alias `prod`，bucket `scoop-bucket`，公开地址前缀 `https://s3.orkward.dev/scoop-bucket/wpk/`：
+MinIO 上的位置：alias `prod`，bucket `winpkgs-bucket`，公开地址前缀 `https://s3.orkward.dev/winpkgs-bucket/wpk/`：
 
 - `<ver>/wpk.zip`：`wpk.exe`、`wpk-shim.exe`、`wpk-shimw.exe`
 - `latest.json`：最新版本的 url 和 sha256，供安装脚本使用

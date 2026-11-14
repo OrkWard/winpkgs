@@ -1,8 +1,8 @@
 # Install wpk: fetch the latest release, check its hash and run `wpk init`.
 #
-#   irm https://s3.orkward.dev/scoop-bucket/wpk/install.ps1 | iex
+#   irm https://s3.orkward.dev/winpkgs-bucket/wpk/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
-$base = 'https://s3.orkward.dev/scoop-bucket/wpk'
+$base = 'https://s3.orkward.dev/winpkgs-bucket/wpk'
 $latest = Invoke-RestMethod "$base/latest.json"
 $dir = Join-Path ([IO.Path]::GetTempPath()) "wpk-install-$([guid]::NewGuid())"
 New-Item -ItemType Directory $dir | Out-Null

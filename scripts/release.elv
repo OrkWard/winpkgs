@@ -4,7 +4,7 @@
 #   elvish scripts/release.elv --publish   also upload to MinIO and write the
 #                                          wpk-bucket manifest (not committed)
 #
-# MinIO (alias prod, bucket scoop-bucket, public at https://s3.orkward.dev):
+# MinIO (alias prod, bucket winpkgs-bucket, public at https://s3.orkward.dev):
 #   wpk/<version>/wpk.zip   wpk.exe, wpk-shim.exe, wpk-shimw.exe
 #   wpk/latest.json         {version, url, sha256}, read by the install scripts
 #   wpk/install.elv, wpk/install.ps1
@@ -22,8 +22,8 @@ if (and $publish (not-eq (git status --porcelain | slurp) '')) {
 
 # `cargo pkgid` prints `path+file:///...#<version>`, or `...#wpk@<version>`.
 var version = (cargo pkgid -p wpk | str:split '#' (one) | put [(all)][-1] | str:split '@' (one) | put [(all)][-1])
-var public = https://s3.orkward.dev/scoop-bucket/wpk
-var target = prod/scoop-bucket/wpk
+var public = https://s3.orkward.dev/winpkgs-bucket/wpk
+var target = prod/winpkgs-bucket/wpk
 echo 'version: '$version
 
 selever exec -- cargo build --release --locked -p wpk -p wpk-shim

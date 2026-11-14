@@ -1,11 +1,11 @@
 # Install wpk: fetch the latest release, check its hash and run `wpk init`.
 #
-#   curl -fsSL https://s3.orkward.dev/scoop-bucket/wpk/install.elv -o install.elv
+#   curl -fsSL https://s3.orkward.dev/winpkgs-bucket/wpk/install.elv -o install.elv
 #   elvish install.elv
 use os
 use str
 
-var base = https://s3.orkward.dev/scoop-bucket/wpk
+var base = https://s3.orkward.dev/winpkgs-bucket/wpk
 var latest = (curl -fsSL $base/latest.json | from-json)
 var dir = (os:temp-dir 'wpk-install-*')
 try {
