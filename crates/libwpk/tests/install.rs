@@ -219,6 +219,34 @@ fn failed_link_restores_previous_version() {
 }
 
 #[test]
+fn multicall_bins_get_hard_links() {
+    let f = Fixture::new("multicall");
+    let layout = &f.wpk.layout;
+    let zip_path = f.root.join("multi.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+    zip.start_file("tool.exe", zip::write::SimpleFileOptions::default()).unwrap();
+    zip.write_all(b"multi-call").unwrap();
+    zip.finish().unwrap();
+    let url = format!("file:///{}", zip_path.display().to_string().replace('\\', "/"));
+    let manifest = serde_json::json!({
+        "version": "1",
+        "url": url,
+        "multicall": true,
+        "bin": ["tool.exe", ["tool.exe", "alias"]]
+    });
+    std::fs::write(f.upstream.join("bucket/multi.json"), manifest.to_string()).unwrap();
+    git(&f.upstream, &["add", "."]);
+    git(&f.upstream, &["commit", "-q", "-m", "multi"]);
+    bucket::update(layout, "t", None).unwrap();
+
+    f.wpk.install(&["multi".into()], &|_: Event<'_>| {}).unwrap();
+    let dir = layout.version("multi", "1");
+    assert_eq!(std::fs::read(dir.join("alias.exe")).unwrap(), b"multi-call");
+    let shim = std::fs::read_to_string(layout.bin().join("alias.shim")).unwrap();
+    assert!(shim.contains(&dir.join("alias.exe").display().to_string()), "{shim}");
+}
+
+#[test]
 fn rejects_unsupported_and_conflicts() {
     let f = Fixture::new("reject");
     let reporter = |_: Event<'_>| {};

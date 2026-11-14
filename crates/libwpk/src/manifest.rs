@@ -48,7 +48,8 @@ pub struct Manifest {
     #[serde(default)]
     pub shortcut_aumid: BTreeMap<String, String>,
     /// wpk extension: the bin targets act on the name they are started as,
-    /// like rustup, so each shim passes its command name as `argv[0]`.
+    /// like rustup. Each bin whose command name differs from its target gets
+    /// a hard link of the target under that name, next to the target.
     #[serde(default)]
     pub multicall: bool,
     #[serde(default)]
@@ -352,9 +353,10 @@ pub struct Bin {
     /// Command name, the target's file stem unless given.
     pub name: String,
     pub args: Option<String>,
-    /// `argv[0]` for the target instead of its path.
+    /// For multicall packages: the file `target` is a hard link of, made at
+    /// install time. Relative to the install dir.
     #[serde(default)]
-    pub arg0: Option<String>,
+    pub link_of: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -472,11 +474,16 @@ impl Manifest {
                 .filter(|n| !n.is_empty())
                 .cloned()
                 .unwrap_or_else(|| file_stem(target));
+            let (target, link_of) = if self.multicall && !name.eq_ignore_ascii_case(&file_stem(target)) {
+                (sibling(target, &name), Some(target.clone()))
+            } else {
+                (target.clone(), None)
+            };
             bins.push(Bin {
-                target: target.clone(),
-                arg0: self.multicall.then(|| name.clone()),
+                target,
                 name,
                 args: args.filter(|a| !a.is_empty()).cloned(),
+                link_of,
             });
         }
 
@@ -631,6 +638,17 @@ fn file_stem(path: &str) -> String {
     }
 }
 
+/// `path` with its file stem replaced by `stem`: `bin\rustup.exe` and
+/// `cargo` give `bin\cargo.exe`.
+fn sibling(path: &str, stem: &str) -> String {
+    let split = path.rfind(['/', '\\']).map_or(0, |i| i + 1);
+    let (dir, name) = path.split_at(split);
+    match name.rsplit_once('.') {
+        Some((_, ext)) => format!("{dir}{stem}.{ext}"),
+        None => format!("{dir}{stem}"),
+    }
+}
+
 fn trim_slashes(path: &str) -> String {
     path.trim_matches(['/', '\\']).to_owned()
 }
@@ -710,13 +728,13 @@ mod tests {
                     target: "fd.exe".into(),
                     name: "f".into(),
                     args: Some("--hidden".into()),
-                    arg0: None,
+                    link_of: None,
                 },
                 Bin {
                     target: "rg.exe".into(),
                     name: "rg".into(),
                     args: None,
-                    arg0: None,
+                    link_of: None,
                 },
             ]
         );
@@ -861,14 +879,15 @@ mod tests {
     }
 
     #[test]
-    fn multicall_passes_command_names() {
+    fn multicall_links_bins_by_name() {
         let m = manifest(
             r#"{"version": "1", "url": "https://h/rustup-init.exe#/rustup.exe", "multicall": true,
-                "bin": ["rustup.exe", ["rustup.exe", "cargo"]]}"#,
+                "bin": ["rustup.exe", ["rustup.exe", "cargo"], ["x\\tool.exe", "t"]]}"#,
         );
         let bins = m.plan(Arch::X64).unwrap().bins;
-        assert_eq!(bins[0].arg0.as_deref(), Some("rustup"));
-        assert_eq!(bins[1].arg0.as_deref(), Some("cargo"));
+        assert_eq!((bins[0].target.as_str(), bins[0].link_of.as_deref()), ("rustup.exe", None));
+        assert_eq!((bins[1].target.as_str(), bins[1].link_of.as_deref()), ("cargo.exe", Some("rustup.exe")));
+        assert_eq!((bins[2].target.as_str(), bins[2].link_of.as_deref()), ("x\\t.exe", Some("x\\tool.exe")));
     }
 
     #[test]

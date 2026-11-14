@@ -134,7 +134,6 @@ mod tests {
             path: notepad.display().to_string(),
             args: Some("-x".into()),
             dir: None,
-            arg0: None,
         };
         write(&bin, "np", &shim, &exes).unwrap();
         assert_eq!(std::fs::read_to_string(bin.join("np.exe")).unwrap(), "gui");

@@ -102,7 +102,6 @@ fn install_self(layout: &Layout) -> Result<ShimExes> {
         path: dir.join("wpk.exe").display().to_string(),
         args: None,
         dir: None,
-        arg0: None,
     };
     shim::write(&layout.bin(), SELF_PACKAGE, &target, &shims)?;
     installed::set_current(layout, SELF_PACKAGE, version)?;

@@ -60,6 +60,7 @@ wpk 不修改任何用户环境，包括 PATH、注册表和用户环境变量�
 - `depends` 按依赖关系安装，被依赖的包同样要满足上面的规则。`suggest` 只在 notes 中展示。
 - `bin` 和快捷方式的参数、`env_set` 的值中，`$dir` `$original_dir` 换成版本目录，`$persist_dir` 换成 `var/<pkg>`，`$version` `$app` 换成版本号和包名。
 - 下载文件名、`extract_dir`、`extract_to`、`bin`、`shortcuts`、`persist` 中的路径必须是不含 `..` 的相对路径，否则拒绝安装。
+- wpk 扩展字段 `"multicall": true`：用于 rustup 这类按自身文件名决定行为的程序。命令名与目标文件名不同的 bin，安装时在目标所在目录建一个以命令名命名的硬链接，shim 指向这个硬链接。例如 `["rustup.exe", "cargo"]` 生成 `cargo.exe`。
 
 ## shim
 
@@ -74,8 +75,6 @@ dir = C:\Users\x\wpk\opt\fd\10.5.2
 ```
 
 `args` 和 `dir` 可以省略。`args` 放在调用 shim 时的参数前面。`dir` 是子进程的工作目录，只有 launcher 写它，设为版本目录；bin 中的 shim 不写，子进程继承调用者的工作目录。
-
-`arg0` 也可以省略，写了就用它代替目标路径作为子进程的 `argv[0]`。它服务于 rustup 这类多调用程序：同一个 exe 按自己被调用的名字决定充当 cargo、rustc 还是 rustup。manifest 写 wpk 扩展字段 `"multicall": true` 时，每个 bin 的 shim 都把命令名写进 `arg0`。
 
 目标 exe 要求管理员权限时，CreateProcess 失败，shim 改用 ShellExecuteEx 的 `runas` 启动。
 

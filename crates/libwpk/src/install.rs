@@ -429,6 +429,14 @@ impl Wpk {
         let prepared = (|| {
             persist::link(&dir, &layout.persist(name), &job.plan.persist)?;
             for bin in &job.plan.bins {
+                if let Some(source) = &bin.link_of {
+                    let link = dir.join(&bin.target);
+                    if !link.exists() {
+                        std::fs::hard_link(dir.join(source), &link).map_err(crate::fs::io_error(&link))?;
+                    }
+                }
+            }
+            for bin in &job.plan.bins {
                 if !dir.join(&bin.target).is_file() {
                     return Err(install_err(format!(
                         "bin '{}' not found in the package",
@@ -588,7 +596,6 @@ fn link_version(
             path: dir.join(&bin.target).display().to_string(),
             args: bin.args.as_deref().map(|a| vars.expand(a)),
             dir: None,
-            arg0: bin.arg0.clone(),
         };
         links.bins.push(bin.name.clone());
         shim::write(&bin_dir, &bin.name, &shim, exes)?;
@@ -599,7 +606,6 @@ fn link_version(
             path: dir.join(&s.target).display().to_string(),
             args: s.args.as_deref().map(|a| vars.expand(a)),
             dir: Some(dir.display().to_string()),
-            arg0: None,
         };
         links.launchers.push(launcher.clone());
         shim::write(&launchers, &launcher, &shim, exes)?;
